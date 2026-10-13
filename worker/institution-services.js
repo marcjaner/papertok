@@ -10,13 +10,29 @@
  */
 
 import {
+  ACCESS_CACHE_SECONDS,
   INSTITUTION_RESOLVERS,
   InstitutionAccessError,
+  readInstitutionQuery,
+  upstreamParams,
   askGetFtr,
   askResolver,
 } from './institution-access.js';
 
+import { cacheResponse } from './provider-runtime.js';
+
 export const INSTITUTION_SERVICES_PATH = '/institution/services';
+const SERVICES_PARTIAL_CACHE_SECONDS = 60 * 60;
+
+export async function handleInstitutionServices(request, env) {
+  const url = new URL(request.url);
+  const origin = request.headers.get('origin') || '';
+  const query = readInstitutionQuery(url.searchParams);
+  const ttl = payload => (payload.partial ? SERVICES_PARTIAL_CACHE_SECONDS : ACCESS_CACHE_SECONDS);
+  return cacheResponse(request, origin, env, ttl, () => lookupInstitutionServices(query, { env }), {
+    canonicalParams: upstreamParams(query, env),
+  });
+}
 
 // One deadline for every probe together. Fourteen platforms at up to two
 // requests each must not run past the browser's wait, and a probe cut short

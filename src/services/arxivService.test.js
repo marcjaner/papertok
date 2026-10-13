@@ -78,7 +78,7 @@ test('keeps the arXiv phrase quotes balanced whatever the user typed', () => {
 // 2026-09-15/16: `sortBy=relevance` answered 502 at 5.07 s, and the client had
 // left at 4 s.
 test('the Worker route is given longer than the Worker gives arXiv', async () => {
-  const worker = await readFile(new URL('../../worker/report-api.js', import.meta.url), 'utf8');
+  const worker = await readFile(new URL('../../worker/arxiv-api.js', import.meta.url), 'utf8');
   const upstream = Number(worker.match(/const ARXIV_UPSTREAM_TIMEOUT_MS = (\d+);/)?.[1]);
   assert.ok(Number.isFinite(upstream) && upstream > 0, 'the Worker declares its arXiv deadline');
   assert.ok(ARXIV_ROUTE_TIMEOUT_MS > upstream, `client ${ARXIV_ROUTE_TIMEOUT_MS} ms must exceed the Worker's ${upstream} ms`);

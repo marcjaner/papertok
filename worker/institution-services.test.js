@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InstitutionAccessError } from './institution-access.js';
 import { SERVICE_CATALOGUE, lookupInstitutionServices } from './institution-services.js';
-import reportApi from './report-api.js';
+import reportApi from './index.js';
 import { fakeIdToken } from '../src/test-support/firebaseIdToken.js';
 
 // Captured 2026-10-13 from the USAL Alma resolver (svc_dat=CTO), cut down to
