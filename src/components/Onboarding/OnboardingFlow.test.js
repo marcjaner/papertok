@@ -148,6 +148,7 @@ test('SOURCE: the about screen is skippable, and its bio and photo reach the pub
   const create = code.match(/await createUserProfile\(\{[\s\S]*?\}\);/);
   assert.match(create[0], /\bbio,/);
   assert.match(create[0], /photo: publicPhoto,/);
+  assert.match(create[0], /showPhoto: Boolean\(publicPhoto\),/, 'a hidden photo is stored as a choice, not mistaken for none');
   assert.match(code, /if \(asksPage && photo\) await updateProfilePhoto\(photo\.account\);/, 'the navbar avatar matches');
   // The account photo is published only with the editor's switch left on.
   assert.match(code, /const publicPhoto = photo\?\.public \|\| \(showAccountPhoto \? accountPhoto : ''\);/);

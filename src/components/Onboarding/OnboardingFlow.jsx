@@ -20,7 +20,7 @@ import {
   publicAvatarFrom,
   readOwnUserProfile,
 } from '../../services/userProfileService.js';
-import { HANDLE_ERRORS, HANDLE_MAX_LENGTH, inspectHandle } from '../../utils/userHandle.js';
+import { HANDLE_ERROR_MESSAGES, HANDLE_MAX_LENGTH, inspectHandle } from '../../utils/userHandle.js';
 import { GUEST_SEED_PER_AREA, guestSeedCategoriesForAreas, guestSeedSizeForAreas, readGuestInterests } from '../../utils/guestInterests.js';
 import { USER_PREFERENCES_MAX } from '../../utils/accountOnboarding.js';
 import { Input } from '../ui/input.jsx';
@@ -193,16 +193,6 @@ function AddressWindow({ handle, valid, still }) {
   );
 }
 
-const HANDLE_ERROR_COPY = {
-  en: {
-    [HANDLE_ERRORS.empty]: 'Choose a handle.',
-    [HANDLE_ERRORS.tooShort]: 'A handle needs at least 3 characters.',
-    [HANDLE_ERRORS.tooLong]: 'A handle can have at most 40 characters.',
-    [HANDLE_ERRORS.charset]: 'Use lowercase letters, numbers and underscores only.',
-    [HANDLE_ERRORS.numericOnly]: 'A handle needs at least one letter.',
-    [HANDLE_ERRORS.reserved]: 'That handle is reserved.',
-  },
-};
 
 // The greeting's title, written out once as if by hand: Pinyon Script
 // outlines baked into SVG (scripts/build-welcome-title.mjs), so no script
@@ -370,7 +360,7 @@ export default function OnboardingFlow() {
   const handleCheck = useMemo(() => inspectHandle(handleDraft), [handleDraft]);
   const handleError = handleCheck.valid
     ? null
-    : HANDLE_ERROR_COPY.en[handleCheck.code];
+    : HANDLE_ERROR_MESSAGES[handleCheck.code];
   const googleDisplayName = user?.displayName
     ? String(user.displayName).slice(0, USER_PROFILE_LIMITS.displayName)
     : '';
@@ -469,6 +459,9 @@ export default function OnboardingFlow() {
           bio,
           allowContact: false,
           photo: publicPhoto,
+          // The page shows a photo exactly when one was chosen or the account's
+          // was left on; stored, so a hidden photo is not mistaken for none.
+          showPhoto: Boolean(publicPhoto),
           visibility: PROFILE_VISIBILITY.public,
           institution,
         });
