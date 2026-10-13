@@ -1,1021 +1,77 @@
 /* ============================================
    Onboarding Flow
 
-   La última pantalla que seguía en el tema oscuro. Lo que había: baldosas
-   grises redondeadas, el titular recortado sobre un degradado que ya no
-   existe, «Seleccionar todo» en un cian que no aparece en ningún otro sitio
-   de la app, y un botón «Siguiente» pintado de tinta sobre tinta — invisible.
-
-   Lo que hay ahora es el vocabulario de LoginPage, que es la pantalla de
-   justo antes: papel cuadriculado, marca amarilla con su desplazamiento de
-   2px, titular en la serif de edición, etiquetas en mono, esquinas casi
-   rectas. Y la regla de la izquierda con la tinta del campo, el mismo recurso
-   que ya usan las baldosas de Mis listas y las filas de paper del perfil.
-
-   Todo el color sale de `variables.css`: no hay ni un hex aquí, así que el
-   tema oscuro entra sin tocar este archivo.
+   The page, the copy, the pickers and the library prop are the welcome's
+   (WelcomeShell, GuestWelcomePreferences and GuestWelcome.css), and so is
+   the idiom: white ground, one prop drawn in hairlines, one plain control
+   in a 400px column under it. What is left here is the onboarding's own:
+   the greeting's written title, the handle screen's browser window, the
+   about screen's photo and name, the fields, and the library's platforms
+   arriving. Tokens only, so the dark theme needs nothing from this file.
    ============================================ */
 
-.onboarding {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  /* PageTransition es una columna flex: sin ancho explícito la ruta se mide
-     contra su contenido y la página salta al montar. */
+/* ── The greeting: the title written out ── */
+.onboarding-script {
+  display: block;
+  width: min(100%, 44rem);
+  margin-inline: auto;
+}
+
+.onboarding-script-svg {
+  display: block;
   width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: var(--bg-primary);
-}
-
-/* ── Papel cuadriculado ──
-   Sólo en el paso 1, que es donde enlaza con la pantalla de acceso; detrás
-   de sesenta chips sería ruido. La misma celda de 28px, y el borde se apaga
-   con el propio fondo de la página en vez de con una máscara, para que un
-   token pueda hacer el trabajo en los dos temas. */
-.onboarding-paper {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.onboarding-paper::before {
-  content: '';
-  position: absolute;
-  inset: -56px;
-  background-image:
-    linear-gradient(to right, var(--border-subtle) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.onboarding-paper::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 68% 62% at 50% 38%, transparent 0%, var(--bg-primary) 76%);
-}
-
-/* ── Barra superior ── */
-.onboarding-bar {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  height: 57px;
-  padding: 0 var(--space-6);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.onboarding-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* La marca de LoginPage, un punto más pequeña. El amarillo no cambia de valor
-   entre temas, así que lo que va encima toma `--text-on-brand`. */
-.onboarding-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background: var(--brand-yellow);
-  color: var(--text-on-brand);
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1;
-  letter-spacing: 0.02em;
-  box-shadow: 2px 2px 0 var(--text-primary);
-}
-
-.onboarding-wordmark {
-  font-size: var(--fs-base);
-  font-weight: var(--fw-bold);
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
-}
-
-/* El amarillo subraya la marca; nunca lleva el color del texto. */
-.onboarding-wordmark span {
-  box-shadow: inset 0 -0.32em 0 var(--brand-yellow);
-}
-
-.onboarding-stepcount {
-  margin-left: auto;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.onboarding-stepcount b {
-  font-weight: inherit;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-/* ── Cuerpo ── */
-.onboarding-body {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--space-8) var(--space-8) var(--space-10);
-}
-
-/* ── Rail de progreso ──
-   Tres puntos no dicen en qué paso estás ni cuántos quedan. Tres tramos
-   numerados sí, y el hilo amarillo marca el activo — el mismo recurso que la
-   barra de secciones del perfil. */
-.onboarding-rail {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin-bottom: var(--space-8);
-}
-
-.onboarding-rail-seg {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding-bottom: 9px;
-  border-bottom: 3px solid var(--border-subtle);
-  color: var(--text-tertiary);
-  transition: color var(--transition-base), border-color var(--transition-base);
-}
-
-.onboarding-rail-n,
-.onboarding-rail-t {
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-}
-
-.onboarding-rail-n {
-  font-variant-numeric: tabular-nums;
-}
-
-.onboarding-rail-t {
-  text-transform: uppercase;
-}
-
-.onboarding-rail-seg.is-active {
-  border-bottom-color: var(--brand-yellow);
-  color: var(--text-primary);
-}
-
-.onboarding-rail-seg.is-done {
-  border-bottom-color: var(--accent-primary);
-  color: var(--text-secondary);
-}
-
-/* ── Paso ── */
-.onboarding-step {
-  animation: fadeIn 0.4s ease-out, onboardingSlideUp 0.4s ease-out;
-}
-
-.onboarding-head {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-10);
-  margin-bottom: var(--space-6);
-}
-
-.onboarding-head-copy {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.onboarding-eyebrow {
-  display: block;
-  margin-bottom: var(--space-3);
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-/* Alineado a la izquierda, como cualquier otra cabecera de la app: el
-   centrado era lo que hacía que la pantalla no se pareciera a nada. */
-.onboarding-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 2rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1.12;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
-}
-
-.onboarding-title--big {
-  font-size: 2.25rem;
-  line-height: 1.1;
-}
-
-.onboarding-title span {
-  box-shadow: inset 0 -0.3em 0 var(--brand-yellow);
-}
-
-.onboarding-lede {
-  margin: var(--space-3) 0 0;
-  max-width: 62ch;
-  font-size: var(--fs-sm);
-  line-height: 1.6;
-  color: var(--text-secondary);
-  text-wrap: pretty;
-}
-
-/* El recibo en el paso del perfil: lo que vino de la respuesta de invitado,
-   con su botón para afinarlo. Sustituye a la nota de una línea, que nadie
-   relacionaba con «elige tus intereses». Reusa .onboarding-receipt del
-   paso 3; aquí solo va la cabecera con el botón. */
-.onboarding-seed-receipt {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.onboarding-seed-receipt-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.onboarding-seed-receipt-lede {
-  margin: var(--space-2) 0 0;
-  max-width: 52ch;
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  color: var(--text-secondary);
-  text-wrap: pretty;
-}
-
-.onboarding-seed-receipt-head .onboarding-btn {
-  flex: 0 0 auto;
-}
-
-@media (max-width: 600px) {
-  .onboarding-seed-receipt-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
-/* El contador grande: la cifra que antes no estaba en ninguna parte. */
-.onboarding-meter {
-  flex: 0 0 auto;
-  padding-bottom: var(--space-1);
-  text-align: right;
-}
-
-.onboarding-meter-n {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xl);
-  font-weight: var(--fw-semibold);
-  line-height: 1;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.onboarding-meter-n i {
-  font-style: normal;
-  color: var(--border-default);
-}
-
-.onboarding-meter-l {
-  display: block;
-  margin-top: 7px;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-/* ── Áreas (paso 1) ──
-   La ficha es una entrada de índice, no una baldosa: regla del campo a la
-   izquierda, casilla a la derecha, y el recuento real de subcategorías en
-   mono, que es el dato que ayuda a decidir. */
-.onboarding-areas {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-3);
-}
-
-/* The card and the chip below are the shared Toggle (`ui/toggle.jsx`)
-   wearing these classes. Its utilities live in the `utilities` layer, so
-   these unlayered rules win; the few the card never set are undone here:
-   the fixed row height, the centred main axis (a column card stacks from
-   the top), the nowrap (the description clamps to two lines) and the
-   medium weight (the description reads at regular). */
-.area-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
   height: auto;
-  min-height: 140px;
-  white-space: normal;
-  font-weight: var(--fw-regular);
-  padding: 13px 15px 13px 12px;
-  text-align: left;
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--area-accent, var(--border-default));
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  overflow: visible;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .area-card:hover {
-    border-color: var(--border-default);
-    background: var(--bg-sunken);
-  }
-
-  .area-card:hover .area-card-box {
-    border-color: var(--border-strong);
-  }
-}
-
-.area-card[data-pressed] {
-  border-color: var(--border-ink);
-}
-
-.area-card-top {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.area-card-icon {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  color: var(--area-accent, var(--text-tertiary));
-}
-
-.area-card-count {
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-.area-card[data-pressed] .area-card-count {
-  color: var(--text-primary);
-}
-
-.area-card-box {
-  flex: 0 0 auto;
-  margin-left: auto;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  color: var(--text-inverse);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.area-card-box svg {
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.area-card[data-pressed] .area-card-box {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-}
-
-.area-card[data-pressed] .area-card-box svg {
-  opacity: 1;
-}
-
-.area-card-name {
+/* The brand thread under the greeting, drawn once the words are written. */
+.onboarding-script-rule {
   display: block;
-  margin-top: 11px;
-  font-family: var(--font-heading);
-  font-size: 0.9375rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-}
-
-/* Marcar un área es subrayarla: el mismo trazo que lleva el logotipo, así
-   que seleccionar se parece a marcar una página. */
-.area-card-name span {
-  box-shadow: none;
-  transition: box-shadow var(--transition-base);
-}
-
-.area-card[data-pressed] .area-card-name span {
-  box-shadow: inset 0 -0.32em 0 var(--brand-yellow);
-}
-
-.area-card-desc {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-top: 6px;
-  font-size: var(--fs-xs);
-  line-height: 1.45;
-  color: var(--text-secondary);
-  text-wrap: pretty;
-}
-
-/* ── Categorías (paso 2) ── */
-.onboarding-subcategories {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-}
-
-.subcat-section-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding-bottom: var(--space-3);
-  /* La regla de la sección lleva la tinta del campo, rebajada contra el papel
-     para que ordene sin gritar. */
-  border-bottom: 1px solid color-mix(in srgb, var(--area-accent, var(--border-default)) 30%, var(--bg-primary));
-}
-
-.subcat-section-icon {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  color: var(--area-accent, var(--text-tertiary));
-}
-
-.subcat-section-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--font-heading);
-  font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-}
-
-.subcat-section-count {
-  flex: 0 0 auto;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-/* Era una píldora cian del tema oscuro. Ahora es un enlace en voz de máquina. */
-.subcat-select-all {
-  flex: 0 0 auto;
-  padding: var(--space-2) var(--space-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .subcat-select-all:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-}
-
-.subcat-select-all.is-active {
-  color: var(--text-primary);
-}
-
-.subcat-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding-top: var(--space-4);
-}
-
-.subcat-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: auto;
-  min-height: 36px;
-  white-space: normal;
-  padding: 0 11px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  font-weight: var(--fw-medium);
-  line-height: 1;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .subcat-chip:hover {
-    border-color: var(--border-default);
-    background: var(--bg-sunken);
-    color: var(--text-primary);
-  }
-}
-
-.subcat-chip-dot {
-  flex: 0 0 auto;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full);
-  background: var(--area-accent, var(--border-default));
-  opacity: 0.55;
-  transition: background var(--transition-fast), opacity var(--transition-fast);
-}
-
-.subcat-chip[data-pressed] {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-  color: var(--text-inverse);
-}
-
-.subcat-chip[data-pressed] .subcat-chip-dot {
+  height: 3px;
+  margin-top: var(--space-2);
   background: var(--brand-yellow);
-  opacity: 1;
+  transform-origin: left center;
 }
 
-/* ── Confirmación (paso 3) ──
-   El check con degradado violeta-cian era lo último que quedaba del tema
-   oscuro. En su lugar, un recibo: qué entra, de cuánto, y el total. */
-.onboarding-step--confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-16);
+/* ── Profile: the two cards as the welcome's reading levels ──
+   Side by side from 240px each. The screen's heading asks the question, so
+   the group's legend is left to assistive tech. */
+.gw-step--profile {
+  width: min(640px, 100%);
 }
 
-.onboarding-confirm-copy {
-  flex: 0 0 420px;
+.onboarding-profile {
+  text-align: left;
 }
 
-.onboarding-confirm-receipt {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.onboarding-receipt {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
+.onboarding-profile .visibility-choice-legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-}
-
-.onboarding-receipt-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 10px var(--space-5) 10px 21px;
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-sunken);
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.onboarding-receipt-head span:first-child {
-  flex: 1 1 auto;
-}
-
-.onboarding-receipt-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-  padding: 15px var(--space-5);
-  border-left: 3px solid var(--area-accent, var(--border-default));
-}
-
-/* La regla va arriba y no abajo: así la última fila no choca con la línea
-   doble del total. */
-.onboarding-receipt-row + .onboarding-receipt-row {
-  border-top: 1px solid var(--border-subtle);
-}
-
-.onboarding-receipt-icon {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  padding-top: 1px;
-  color: var(--area-accent, var(--text-tertiary));
-}
-
-.onboarding-receipt-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.onboarding-receipt-name {
-  font-size: 0.9375rem;
-  font-weight: var(--fw-semibold);
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-}
-
-.onboarding-receipt-sample {
-  margin-top: 6px;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  line-height: 1.55;
-  color: var(--text-secondary);
-}
-
-.onboarding-receipt-count {
-  flex: 0 0 auto;
-  text-align: right;
-  font-family: var(--font-mono);
-  font-size: 0.9375rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.onboarding-receipt-count small {
-  display: block;
-  margin-top: 5px;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-
-.onboarding-receipt-total {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 14px var(--space-5) 14px 21px;
-  border-top: 2px solid var(--border-ink);
-  background: var(--bg-sunken);
-}
-
-.onboarding-receipt-total span:first-child {
-  flex: 1 1 auto;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-primary);
-}
-
-.onboarding-receipt-total-n {
-  font-family: var(--font-mono);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.onboarding-receipt-total-n i {
-  font-style: normal;
-  color: var(--text-tertiary);
-}
-
-.onboarding-receipt-note {
-  display: block;
-  margin-top: var(--space-3);
-  text-align: right;
-  font: var(--mono-label);
-  letter-spacing: var(--mono-track);
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.onboarding-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-8);
-}
-
-/* ── Botones ──
-   El «Siguiente» de antes pintaba `--gradient-brand` de fondo y
-   `--text-primary` de letra: tinta sobre tinta, ilegible desde que el tema
-   claro aterrizó. La letra ahora es la inversa, que es lo que significa. */
-.onboarding-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: 44px;
-  padding: 0 var(--space-5);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  font-family: var(--font-body);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
+  clip-path: inset(50%);
   white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.onboarding-btn--lg {
-  min-height: 48px;
-  padding: 0 var(--space-6);
-  font-size: var(--fs-base);
+.onboarding-profile .visibility-option {
+  border-color: var(--border-strong);
+  background: var(--bg-card);
 }
 
-.onboarding-btn--ink {
+.onboarding-profile .visibility-option[data-checked] {
   border-color: var(--border-ink);
-  background: var(--accent-primary);
-  color: var(--text-inverse);
+  background: var(--bg-sunken);
+  box-shadow: inset 0 -3px 0 var(--text-primary);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .onboarding-btn--ink:hover:not(:disabled) {
-    border-color: var(--accent-primary-hover);
-    background: var(--accent-primary-hover);
-  }
-}
-
-/* Un botón apagado no se lee mejor por estar medio transparente: se dibuja
-   como lo que es, y la razón de que lo esté va escrita al lado. */
-.onboarding-btn--ink:disabled {
-  opacity: 1;
-  border-color: var(--border-subtle);
-  background: var(--bg-secondary);
-  color: var(--text-tertiary);
-}
-
-.onboarding-btn--ghost {
-  color: var(--text-secondary);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .onboarding-btn--ghost:hover:not(:disabled) {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-}
-
-.onboarding-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid color-mix(in srgb, var(--text-inverse) 35%, transparent);
-  border-top-color: var(--text-inverse);
-  border-radius: var(--radius-full);
-  animation: spin 0.7s linear infinite;
-}
-
-/* ── Pie ──
-   Pegajoso, no fijo: cuando el contenido no llega abajo se queda en su sitio
-   sin necesidad del relleno de 100px y del degradado que lo tapaba. */
-.onboarding-foot {
-  position: sticky;
-  bottom: 0;
-  z-index: var(--z-nav);
-  margin-top: auto;
-  border-top: 1px solid var(--border-default);
-  background: var(--bg-primary);
-}
-
-.onboarding-foot-inner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--space-3) var(--space-8);
-}
-
-.onboarding-tally {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.onboarding-tally-n {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
-  transition: color var(--transition-base);
-}
-
-.onboarding-tally-n.is-on {
-  color: var(--text-primary);
-}
-
-.onboarding-tally-hint {
-  display: block;
-  margin-top: var(--space-1);
-  font-size: var(--fs-xs);
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-/* ── Responsive ── */
-@media (pointer: coarse) {
-  .subcat-chip {
-    min-height: 44px;
-    padding: 0 var(--space-3);
-  }
-
-  .subcat-select-all {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .area-card-box {
-    width: 22px;
-    height: 22px;
-  }
-}
-
-@media (max-width: 900px) {
-  .onboarding-head {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-4);
-  }
-
-  .onboarding-meter {
-    padding-bottom: 0;
-    text-align: left;
-  }
-
-  .onboarding-step--confirm {
-    flex-direction: column;
-    gap: var(--space-8);
-  }
-
-  .onboarding-confirm-copy {
-    flex: 1 1 auto;
-  }
-
-  .onboarding-confirm-receipt {
-    width: 100%;
-  }
-}
-
-@media (max-width: 600px) {
-  .onboarding-bar {
-    height: 52px;
-    padding: 0 var(--space-4);
-  }
-
-  .onboarding-body {
-    padding: var(--space-5) var(--space-4) var(--space-6);
-  }
-
-  .onboarding-rail {
-    gap: var(--space-1);
-    margin-bottom: var(--space-6);
-  }
-
-  .onboarding-title {
-    font-size: 1.625rem;
-  }
-
-  .onboarding-title--big {
-    font-size: 1.75rem;
-  }
-
-  /* En el móvil la ficha se vuelve fila: doce áreas de un vistazo, a ancho
-     completo, en vez de una rejilla de baldosas que obliga a rebuscar. */
-  .onboarding-areas {
-    grid-template-columns: 1fr;
-    gap: 0;
-    margin: 0 calc(var(--space-4) * -1);
-    border-top: 1px solid var(--border-subtle);
-  }
-
-  .area-card {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-3);
-    min-height: 56px;
-    padding: 0 var(--space-4) 0 13px;
-    border-width: 0 0 1px;
-    border-left-width: 3px;
-    border-left-style: solid;
-    border-radius: 0;
-  }
-
-  .area-card[data-pressed] {
-    border-color: var(--border-subtle);
-    border-left-color: var(--area-accent, var(--border-default));
-    background: var(--bg-sunken);
-  }
-
-  /* Los tres hijos de la cabecera pasan a ser hijos de la fila, y el orden lo
-     pone el CSS: icono · nombre · recuento · casilla. */
-  .area-card-top {
-    display: contents;
-  }
-
-  .area-card-icon { order: 1; }
-
-  .area-card-name {
-    order: 2;
-    flex: 1 1 auto;
-    min-width: 0;
-    margin-top: 0;
-    font-size: var(--fs-sm);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .area-card-count { order: 3; }
-
-  .area-card-box {
-    order: 4;
-    margin-left: 0;
-  }
-
-  .area-card-desc {
-    display: none;
-  }
-
-  .subcat-section-header {
-    flex-wrap: wrap;
-  }
-
-  .subcat-section-title {
-    flex: 1 1 100%;
-    order: -1;
-  }
-
-  .onboarding-foot-inner {
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-  }
-
-  .onboarding-tally-hint {
-    display: none;
-  }
-
-  .onboarding-actions {
-    flex-wrap: wrap;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onboarding-step {
-    animation: none;
-  }
-
-  .onboarding-spinner {
-    animation: none;
-  }
-
-  .area-card,
-  .area-card-box,
-  .area-card-box svg,
-  .area-card-name span,
-  .subcat-chip,
-  .subcat-chip-dot,
-  .subcat-select-all,
-  .onboarding-btn,
-  .onboarding-rail-seg,
-  .onboarding-tally-n {
-    transition: none;
-  }
-}
-
-.onboarding-step--profile {
+/* ── The fields: one plain column under the prop ── */
+.onboarding-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  max-width: 40rem;
-}
-
-.onboarding-profile-fields {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
+  width: min(400px, 100%);
+  margin: var(--space-6) auto 0;
+  text-align: left;
 }
 
 .onboarding-field {
@@ -1024,138 +80,273 @@
   gap: var(--space-2);
 }
 
-.onboarding-field label {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+/* The labels speak in the welcome's field voice: the mono kicker. */
+.onboarding-field label,
+.onboarding-university .institution-link > label {
+  font: var(--mono-label);
   letter-spacing: var(--mono-track);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
 
-.onboarding-field input {
-  width: 100%;
+.onboarding-fields [data-slot='input'],
+.onboarding-university .institution-link-input {
   min-height: 44px;
-  padding: var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--fs-base);
 }
 
-.onboarding-handle-input {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.onboarding-handle-input > span {
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--fs-lg);
+.onboarding-fields [data-slot='textarea'] {
+  max-height: 30vh;
 }
 
 .onboarding-field-hint {
   margin: 0;
-  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+  color: var(--text-tertiary);
 }
 
 .onboarding-field-hint.is-error,
 .onboarding-profile-error {
-  margin: 0;
   color: var(--accent-danger);
+}
+
+/* Under the screen's content, on the profile or the university screen. */
+.onboarding-profile-error {
+  margin: var(--space-4) 0 0;
   font-size: var(--fs-sm);
 }
 
-/* ── The university card (step 4) ──
-   Same frame as a visibility option: sunken ground, hairline, near-square.
-   Linked, it takes the blue of the institution pill. */
-.onboarding-institution {
+.onboarding-field-head {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-.onboarding-institution.is-linked {
-  border-color: var(--tint-blue-line);
-  background: color-mix(in srgb, var(--tint-blue-bg) 55%, var(--bg-secondary));
-}
-
-.onboarding-institution-head {
-  display: flex;
-  align-items: flex-start;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-3);
 }
 
-.onboarding-institution-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-}
-
-.onboarding-institution.is-linked .onboarding-institution-icon {
-  color: var(--tint-blue-fg);
-}
-
-.onboarding-institution-copy {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.onboarding-institution-title-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.onboarding-institution-title-line h2 {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0;
-  color: var(--text-primary);
-}
-
-.onboarding-institution-tag {
-  padding: 2px 6px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+.onboarding-bio-count {
   font: var(--mono-label);
   letter-spacing: var(--mono-track);
-  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
 }
 
-.onboarding-institution-copy > p {
-  margin: 0;
-  max-width: 52ch;
+/* The handle field's "@", painted inside the field in the body face, as in
+   the profile editor. A click on it has to reach the input underneath. */
+.onboarding-handle-input {
+  position: relative;
+}
+
+.onboarding-handle-input > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--space-3);
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  pointer-events: none;
+}
+
+.onboarding-handle-input > input {
+  padding-left: calc(var(--space-3) + 1.1em);
+  font-family: var(--font-mono);
+}
+
+/* ── Handle: the address in a browser window ──
+   The welcome's GitHub window (`.gw-gh*`), here 320px drawn at 1.25, so it
+   is as wide as the field column, and smaller where a phone has less room.
+   The address is the handle being typed: tertiary until it is valid, ink
+   once it is. Under the chrome, the page it opens as a faint skeleton. */
+.gw-gh.onboarding-window {
+  width: 320px;
+  margin-inline: auto;
+  zoom: 1.25;
+}
+
+.onboarding-window .gw-gh-url {
+  position: relative;
+  font-size: 0.6875rem;
+}
+
+.onboarding-window-address {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-tertiary);
+  transition: color 200ms ease;
+}
+
+.onboarding-window-address[data-valid] {
+  color: var(--text-primary);
+}
+
+.onboarding-window-cursor {
+  top: 55%;
+  left: 66%;
+  z-index: 1;
+}
+
+.onboarding-window-page {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 8px 12px;
+  padding: 16px 14px 20px;
+}
+
+.onboarding-window-avatar {
+  grid-row: 1 / 3;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--bg-sunken);
+}
+
+.onboarding-window-bar {
+  display: block;
+  align-self: end;
+  width: 58%;
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--border-strong);
+}
+
+.onboarding-window-bar--short {
+  align-self: start;
+  width: 36%;
+  background: var(--border-default);
+}
+
+.onboarding-window-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 14px;
+  margin: 10px -14px 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.onboarding-window-tabs > span {
+  padding-bottom: 7px;
+}
+
+.onboarding-window-tabs > .is-active {
+  margin-bottom: -1px;
+  border-bottom: 2px solid var(--border-strong);
+}
+
+.onboarding-window-tabs i {
+  display: block;
+  width: 28px;
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--border-default);
+}
+
+@media (max-width: 480px) {
+  .gw-gh.onboarding-window { zoom: 1; }
+}
+
+@media (max-width: 370px) {
+  .gw-gh.onboarding-window { zoom: 0.86; }
+}
+
+/* ── About: the photo and the name it stands beside ── */
+.onboarding-about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.onboarding-about-name {
+  max-width: 100%;
+  margin: var(--space-3) 0 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-serif);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+/* The account-photo switch: a row card, as the welcome's digest opt-in. */
+.onboarding-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-normal);
+  text-align: left;
+  cursor: pointer;
+}
+
+.onboarding-switch:has(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.onboarding-switch-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.onboarding-switch-label {
   font-size: var(--fs-sm);
-  line-height: 1.55;
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.onboarding-switch-hint {
+  font-size: var(--fs-xs);
+  line-height: 1.6;
   color: var(--text-secondary);
 }
 
-/* The form sits under the copy, aligned with it rather than with the icon. */
-.onboarding-institution .institution-link {
-  margin: 0;
-  padding-left: calc(38px + var(--space-3));
+/* ── University: the welcome's screen, the link in its field's place ──
+   InstitutionLink draws the form, and the linked row once linked; here it
+   takes the field column, and each of the library's platforms rises in 50ms
+   after the one before. */
+.onboarding-university .institution-link {
+  width: min(400px, 100%);
+  margin: var(--space-4) auto 0;
+  text-align: left;
 }
 
-@media (max-width: 600px) {
-  .onboarding-institution .institution-link { padding-left: 0; }
+.onboarding-university .institution-link.is-linked,
+.onboarding-university .institution-services-list > li {
+  animation: onboarding-rise 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.onboarding-university .institution-services-list > li:nth-child(2) { animation-delay: 50ms; }
+.onboarding-university .institution-services-list > li:nth-child(3) { animation-delay: 100ms; }
+.onboarding-university .institution-services-list > li:nth-child(4) { animation-delay: 150ms; }
+.onboarding-university .institution-services-list > li:nth-child(5) { animation-delay: 200ms; }
+.onboarding-university .institution-services-list > li:nth-child(6) { animation-delay: 250ms; }
+.onboarding-university .institution-services-list > li:nth-child(n + 7) { animation-delay: 300ms; }
+
+@keyframes onboarding-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-university .institution-link.is-linked,
+  .onboarding-university .institution-services-list > li {
+    animation: none;
+  }
 }

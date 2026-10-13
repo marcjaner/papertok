@@ -166,7 +166,7 @@
   display: grid;
   place-items: center;
   color: var(--text-tertiary);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--fs-base);
   /* Decoration painted over the field: a click on the @ has to reach the
      input underneath it. */

@@ -7,24 +7,30 @@ import { readFile } from 'node:fs/promises';
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('SOURCE: the onboarding refuses to leave the categories step, or to finish, over the cap', async () => {
+test('SOURCE: the onboarding refuses to leave the topics screen, or to finish, over the cap', async () => {
   const code = stripComments(await read('./OnboardingFlow.jsx'));
   assert.match(code, /import \{ USER_PREFERENCES_MAX \} from '\.\.\/\.\.\/utils\/accountOnboarding\.js';/);
-  assert.match(code, /const overCap = selectedSubcategories\.size > USER_PREFERENCES_MAX;/);
-  assert.match(code, /else if \(step === 2 && selectedSubcategories\.size > 0 && !overCap\)/, 'Next on the categories step is gated');
-  // Anchored on the preceding `||`: the same clause text also appears in the
-  // `handleNext` line asserted just above, preceded by `else if ` there
-  // instead. An unanchored match on `canProceed` alone would still pass with
-  // `!overCap` removed from `canProceed`, as long as `handleNext`'s own guard
-  // survived — the assertion would prove nothing about `canProceed` at all.
-  assert.match(code, /\|\|\s*\(step === 2 && selectedSubcategories\.size > 0 && !overCap\)/, 'and so is canProceed');
-  assert.match(code, /\(step === 4 && !overCap && \(/, 'Start exploring is gated too');
-  assert.match(code, /At most \$\{USER_PREFERENCES_MAX\} categories: drop \$\{selectedSubcategories\.size - USER_PREFERENCES_MAX\}\./, 'the hint says how many to drop');
-  // Step 3 has its own finish button in the `existingProfile` branch, which
-  // calls handleFinish directly and never consults canProceed. The cap closes
-  // at the function too, so no entry point can finish over it.
+  // guestSeedCategoriesForAreas cuts at the cap by itself, so the cap is
+  // judged on the count before that cut: every ticked topic, and the first
+  // few of each area left whole.
+  // The size comes from the bridge's own rule, uncapped, so the onboarding
+  // never re-derives how many categories an answer stands for.
+  assert.match(code, /const preferenceCount = guestSeedSizeForAreas\(Array\.from\(selectedAreas\), GUEST_SEED_PER_AREA, Array\.from\(selectedTopics\)\);/);
+  assert.doesNotMatch(code, /Math\.min\(GUEST_SEED_PER_AREA/);
+  // Judged on the pickers' path only, where the reader can drop topics; a
+  // guest answer never shows the pickers and its seed is cut at the cap.
+  assert.match(code, /const overCap = asksTopics && preferenceCount > USER_PREFERENCES_MAX;/);
+  assert.doesNotMatch(code, /overCap = preferences\.length/, 'the capped list can never be over the cap');
+  // Every screen after the areas is held, not only the topics where the
+  // cap is reached.
+  assert.match(code, /\|\|\s*\(step !== 'topics' && overCap\)/, 'the primary button is disabled past the areas');
+  assert.match(code, /disabled: primaryDisabled,/, 'and that is what the shell\'s button gets');
+  assert.match(code, /At most \$\{USER_PREFERENCES_MAX\} categories: drop \$\{preferenceCount - USER_PREFERENCES_MAX\}\./, 'the note says how many to drop');
+  // The live region is on every screen of that path, empty until the cap is
+  // passed, so its text arrives in a region that already exists.
+  assert.match(code, /\{asksTopics && \(\s*<p className="gw-preference-note" aria-live="polite">/, 'and is announced when it appears');
+  // The cap closes at the function too, so no entry point can finish over it.
   assert.match(code, /const handleFinish = async \(\) => \{\s*if \(overCap\) return;/, 'handleFinish refuses over the cap whatever called it');
-  assert.match(code, /onClick=\{handleFinish\}\s*disabled=\{saving \|\| overCap\}/, 'the step-3 finish button is disabled over the cap');
 });
 
 test('SOURCE: the settings picker refuses to save over the cap, before the write', async () => {

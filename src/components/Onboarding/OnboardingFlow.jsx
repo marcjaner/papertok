@@ -1,43 +1,197 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, GraduationCap } from '@phosphor-icons/react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { Cursor, LockSimple } from '@phosphor-icons/react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { CATEGORIES } from '../../data/categories';
-import './OnboardingFlow.css';
 import { useAnalyticsConsent } from '../../context/AnalyticsContext';
 import VisibilityChoice from '../Profile/VisibilityChoice.jsx';
+import Handle from '../Profile/Handle.jsx';
+import { AvatarPicker } from '../Profile/AvatarPicker.jsx';
 import InstitutionLink from '../Institution/InstitutionLink.jsx';
+import { AreaPicker, SubtopicsPicker, WelcomeCopy, WelcomeShell } from '../Public/WelcomeShell.jsx';
+import { LibraryPreview } from '../Public/GuestWelcomePreferences.jsx';
 import {
   HandleUnavailableError,
   PROFILE_VISIBILITY,
   USER_PROFILE_LIMITS,
   createUserProfile,
+  publicAvatarFrom,
   readOwnUserProfile,
 } from '../../services/userProfileService.js';
 import { HANDLE_ERRORS, HANDLE_MAX_LENGTH, inspectHandle } from '../../utils/userHandle.js';
-import { GUEST_SEED_PER_AREA, guestSeedCategoriesForAreas, readGuestInterests } from '../../utils/guestInterests.js';
+import { GUEST_SEED_PER_AREA, guestSeedCategoriesForAreas, guestSeedSizeForAreas, readGuestInterests } from '../../utils/guestInterests.js';
 import { USER_PREFERENCES_MAX } from '../../utils/accountOnboarding.js';
 import { Input } from '../ui/input.jsx';
 import { Label } from '../ui/label.jsx';
-import { Toggle } from '../ui/toggle.jsx';
+import { Switch } from '../ui/switch.jsx';
+import { Textarea } from '../ui/textarea.jsx';
+import WELCOME_TITLE from './welcomeTitlePaths.js';
+import './OnboardingFlow.css';
 
-const AREA_ENTRIES = Object.entries(CATEGORIES);
+// The account's first screens, drawn in the welcome's layout (WelcomeShell),
+// one per screen: a greeting, the areas and the topics within them, the
+// public profile question, the handle and name of that profile, a photo and
+// bio for it, and the university library. The topics are asked only of a
+// reader who did not answer them on the welcome (an account opened from a
+// shared link); an account that already has a profile is not asked about one
+// again; and the handle, photo and bio only follow a public choice, since a
+// private profile has no page to show them on.
+function onboardingSteps({ asksTopics, asksProfile, asksPage }) {
+  return [
+    'welcome',
+    ...(asksTopics ? ['topics', 'subtopics'] : []),
+    ...(asksProfile ? ['profile'] : []),
+    ...(asksPage ? ['handle', 'about'] : []),
+    'university',
+  ];
+}
 
-/** Cuántas subcategorías tiene cada área, contadas una vez del dato real. */
-const AREA_SIZES = Object.fromEntries(
-  AREA_ENTRIES.map(([key, area]) => [key, Object.keys(area.subcategories).length])
-);
 
-const TOTAL_SUBCATEGORIES = Object.values(AREA_SIZES).reduce((n, size) => n + size, 0);
+const COPY = {
+  progress: 'Progress',
+  stepOf: (n, total) => `Step ${n} of ${total}`,
+  back: 'Back',
+  saving: 'Saving…',
+  welcome: {
+    kicker: firstName => (firstName ? `Hello, ${firstName}` : 'Hello'),
+    title: 'Welcome to PaperTok',
+    lede: 'Your feed is ready to be yours. A few short steps and you are in.',
+    cta: 'Let’s go',
+  },
+  topics: {
+    kicker: 'Your topics',
+    title: 'What are you into?',
+    lede: 'This builds your feed. You can change it later.',
+    areasLabel: 'Areas of interest',
+    cta: 'Continue',
+  },
+  subtopics: {
+    kicker: 'Fine-tune your feed',
+    title: 'Anything more specific?',
+    lede: 'The more specific, the more personal your feed.',
+    cta: 'Continue',
+  },
+  profile: {
+    kicker: 'Your profile',
+    title: 'Do you want a public profile?',
+    lede: 'A public profile gives you a page of your own. Nothing is published until you finish.',
+    cta: 'Continue',
+  },
+  handle: {
+    kicker: 'Your address',
+    title: 'Pick your handle',
+    lede: 'It becomes the address of your page and the name people search for.',
+    handleLabel: 'Public handle',
+    handleHint: 'Lowercase letters, numbers and underscores.',
+    nameLabel: 'Display name',
+    handleTaken: 'That handle is already taken. Try another.',
+    cta: 'Continue',
+  },
+  about: {
+    kicker: 'Your page',
+    title: 'Say a little about yourself',
+    lede: 'Optional. A photo and a line or two; you can change both in Settings.',
+    showPhoto: 'Show my account photo',
+    showPhotoHint: 'Off: your page shows your initial instead of the picture.',
+    bio: 'Bio',
+    bioPlaceholder: 'A line or two about what you read.',
+    skip: 'Skip for now',
+    cta: 'Continue',
+  },
+  university: {
+    kicker: 'Your university',
+    title: 'Do you read through a university library?',
+    lede: 'Optional. Papers behind a paywall often open through your library.',
+    cta: 'Start exploring',
+    link: 'Continue',
+    verifying: 'Verifying…',
+    skip: 'Skip for now',
+    linkedNote: 'You can unlink any time in Settings.',
+  },
+};
 
-/** The four tramos of the rail, in both languages. */
-const STEPS = [
-  { n: '01', label: 'Areas' },
-  { n: '02', label: 'Categories' },
-  { n: '03', label: 'Your feed' },
-  { n: '04', label: 'Profile' },
-];
+// The university screen's link form, which the shell's primary submits while
+// an address is typed.
+const UNIVERSITY_FORM_ID = 'onboarding-institution-form';
+
+// The welcome's timing (GuestWelcomePreferences): the curve its props arrive
+// on, and the moment and spring with which the library card lands on its
+// paper. The props here arrive the same way; the fields fade in after them.
+// `initial={false}`, with motion refused, hands every part its final state.
+const ARRIVE_EASE = [0.16, 1, 0.3, 1];
+const CARD_AT = 0.9;
+const CARD_SETTLE = 0.85;
+const ARRIVE = { duration: 0.45, ease: ARRIVE_EASE, delay: 0.1 };
+const LANDING = { type: 'spring', duration: CARD_SETTLE, bounce: 0.24 };
+const FIELDS_AT = 0.3;
+
+function Fields({ still, children }) {
+  return (
+    <motion.div
+      className="onboarding-fields"
+      initial={still ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3, ease: ARRIVE_EASE, delay: FIELDS_AT }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// The handle screen's prop, in the welcome's browser vocabulary (its GitHub
+// window): the address pill reads the handle as it is typed, with a short
+// dip in opacity on each change, and turns to ink once the handle is valid.
+// Under the chrome, the page that address opens, as a faint skeleton. The
+// welcome's cursor lands on the pill as its library card lands on the paper.
+// Decoration: the field below is what assistive tech reads.
+function AddressWindow({ handle, valid, still }) {
+  return (
+    <motion.div
+      className="gw-gh onboarding-window"
+      aria-hidden="true"
+      initial={still ? false : { opacity: 0, transform: 'translateY(16px)' }}
+      animate={{ opacity: 1, transform: 'translateY(0px)' }}
+      transition={ARRIVE}
+    >
+      <div className="gw-gh-chrome">
+        <span className="gw-gh-dots"><i /><i /><i /></span>
+        <span className="gw-gh-url">
+          <LockSimple size={9} weight="fill" />
+          <span className="onboarding-window-address" data-valid={valid ? '' : undefined}>
+            <motion.span
+              key={handle}
+              initial={still ? false : { opacity: 0.35 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
+            >
+              papertok.app/<Handle handle={handle || 'yourhandle'} />
+            </motion.span>
+          </span>
+          <motion.span
+            className="gw-gh-cursor onboarding-window-cursor"
+            initial={still ? false : { opacity: 0, transform: 'translate(40px, 32px)' }}
+            animate={{ opacity: 1, transform: 'translate(0px, 0px)' }}
+            transition={{ ...LANDING, delay: CARD_AT, opacity: { duration: 0.2, delay: CARD_AT } }}
+          >
+            <Cursor size={15} weight="fill" />
+          </motion.span>
+        </span>
+      </div>
+      <div className="onboarding-window-page">
+        <span className="onboarding-window-avatar" />
+        <span className="onboarding-window-bar" />
+        <span className="onboarding-window-bar onboarding-window-bar--short" />
+        <span className="onboarding-window-tabs">
+          <span className="is-active"><i /></span>
+          <span><i /></span>
+          <span><i /></span>
+        </span>
+      </div>
+    </motion.div>
+  );
+}
 
 const HANDLE_ERROR_COPY = {
   en: {
@@ -50,83 +204,150 @@ const HANDLE_ERROR_COPY = {
   },
 };
 
-/**
- * El recibo: una fila por área con cuántas categorías entran, y el total.
- * Lo pintan el paso 3 (confirmación) y el paso 4 (perfil, cuando los
- * intereses vinieron de la respuesta de invitado): un solo componente para
- * que ambos enseñen exactamente lo que `completeOnboarding` va a escribir.
- */
-function InterestsReceipt({ rows, total, available }) {
+// The greeting's title, written out once as if by hand: Pinyon Script
+// outlines baked into SVG (scripts/build-welcome-title.mjs), so no script
+// face is loaded. Each glyph is drawn filled under its own mask, a band
+// leaning with the script that slides across the glyph with a soft leading
+// edge, so the ink arrives stroke by stroke rather than as an outline.
+// A glyph's time is its share of the ink (capitals weigh more), each begins
+// as the one before is nearly done, as joined letters do, and a word gap is
+// a short lift. Then the brand underline draws. Done by about 2.95 s, once.
+// With motion refused the title is drawn whole and the underline in place.
+// The SVG is decoration; the heading's text is the visually hidden span.
+const WRITE_START = 0.1;
+const WRITE_SECONDS = 2.2;
+const CAPITAL_WEIGHT = 1.25;
+const JOIN_AT = 0.88;
+const WORD_GAP = 0.14;
+const WRITE_EASE = [0.4, 0, 0.6, 1];
+const RULE_GAP = 0.15;
+const RULE_SECONDS = 0.45;
+// The reveal's soft edge in the outlines' units; its lean is the one the
+// sweeps were measured across, baked with them.
+const INK_EDGE = 28;
+const SLANT_DEGREES = WELCOME_TITLE.slant;
+
+const [VIEW_X, VIEW_Y, VIEW_W, VIEW_H] = WELCOME_TITLE.viewBox.split(' ').map(Number);
+const WEIGHTS = WELCOME_TITLE.glyphs.map(glyph => glyph.length * (/[A-Z]/.test(glyph.char) ? CAPITAL_WEIGHT : 1));
+const TOTAL_WEIGHT = WEIGHTS.reduce((sum, weight) => sum + weight, 0);
+const WRITING = [];
+for (const [index, glyph] of WELCOME_TITLE.glyphs.entries()) {
+  const previous = WRITING[index - 1];
+  WRITING.push({
+    start: previous
+      ? previous.start + previous.duration * JOIN_AT + (glyph.afterSpace ? WORD_GAP : 0)
+      : WRITE_START,
+    duration: (WEIGHTS[index] / TOTAL_WEIGHT) * WRITE_SECONDS,
+  });
+}
+const WRITE_END = Math.max(...WRITING.map(({ start, duration }) => start + duration));
+const RULE_START = WRITE_END + RULE_GAP;
+// Shears x by the height above the baseline, as the generator's `sweep` does.
+const SLANT = `translate(0 ${WELCOME_TITLE.baseline}) skewX(-${SLANT_DEGREES}) translate(0 ${-WELCOME_TITLE.baseline})`;
+
+function ScriptTitle({ still }) {
   return (
-    <div className="onboarding-receipt">
-      <div className="onboarding-receipt-head">
-        <span>{'Area'}</span>
-        <span>{'Categories'}</span>
-      </div>
-      {rows.map(({ key, area, count, total: areaTotal, sample, rest }) => (
-        <div key={key} className="onboarding-receipt-row" style={{ '--area-accent': area.gradient }}>
-          <span className="onboarding-receipt-icon"><area.icon size={19} /></span>
-          <div className="onboarding-receipt-main">
-            <div className="onboarding-receipt-name">{area.label}</div>
-            <div className="onboarding-receipt-sample">
-              {sample.join(' · ')}
-              {rest > 0 && ` · +${rest} ${'more'}`}
-            </div>
-          </div>
-          <div className="onboarding-receipt-count">
-            {count}<small>{`of ${areaTotal}`}</small>
-          </div>
-        </div>
-      ))}
-      <div className="onboarding-receipt-total">
-        <span>{'Total'}</span>
-        <span className="onboarding-receipt-total-n">
-          {total}<i> / {available}</i>
-        </span>
-      </div>
-    </div>
+    <span className="onboarding-script" aria-hidden="true">
+      <svg className="onboarding-script-svg" viewBox={WELCOME_TITLE.viewBox} focusable="false">
+        {!still && (
+          <defs>
+            {WELCOME_TITLE.glyphs.map((glyph, index) => {
+              // The band covers the glyph's extent across the slant, plus the
+              // soft edge, and starts one band-width to its left.
+              const [from, to] = glyph.sweep;
+              const width = to - from + INK_EDGE + 4;
+              const left = from - 2;
+              return (
+                <g key={index}>
+                  <linearGradient id={`welcome-title-ink-${index}`}>
+                    <stop offset={(width - INK_EDGE) / width} stopColor="white" />
+                    <stop offset={1} stopColor="white" stopOpacity={0} />
+                  </linearGradient>
+                  <mask
+                    id={`welcome-title-mask-${index}`}
+                    maskUnits="userSpaceOnUse"
+                    x={VIEW_X - VIEW_W}
+                    y={VIEW_Y - VIEW_H}
+                    width={VIEW_W * 3}
+                    height={VIEW_H * 3}
+                  >
+                    <g transform={SLANT}>
+                      <motion.rect
+                        y={VIEW_Y - VIEW_H}
+                        width={width}
+                        height={VIEW_H * 3}
+                        fill={`url(#welcome-title-ink-${index})`}
+                        initial={{ attrX: left - width }}
+                        animate={{ attrX: left }}
+                        transition={{ duration: WRITING[index].duration, delay: WRITING[index].start, ease: WRITE_EASE }}
+                      />
+                    </g>
+                  </mask>
+                </g>
+              );
+            })}
+          </defs>
+        )}
+        {WELCOME_TITLE.glyphs.map((glyph, index) => (
+          <path
+            key={index}
+            d={glyph.d}
+            fill="currentColor"
+            mask={still ? undefined : `url(#welcome-title-mask-${index})`}
+          />
+        ))}
+      </svg>
+      <motion.span
+        className="onboarding-script-rule"
+        initial={still ? false : { scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={{ duration: RULE_SECONDS, delay: RULE_START, ease: [0.33, 1, 0.68, 1] }}
+      />
+    </span>
   );
 }
 
+
 export default function OnboardingFlow() {
-  // What this visitor said they were into before they had an account
-  // (GuestWelcome, or the header chip's GuestInterestsPrompt). Read once: the
-  // answer is the starting point, not a live source, and the areas step below
-  // can change everything about it. With an answer, the interests are settled
-  // — the first five categories of every area they picked, or exactly the
-  // topics they narrowed an area to on the welcome
-  // (`guestSeedCategoriesForAreas`) — and the flow opens on the profile step,
-  // the only thing the guest has not been asked yet. The areas and categories
-  // steps and the receipt stay reachable through Back, for a reader who wants
-  // to narrow the pick before it is written. AuthContext clears the answer once
-  // completeOnboarding has written it to the profile.
-  const [guestSeed] = useState(() => {
-    const stored = readGuestInterests();
-    return stored?.areas.length ? stored.areas : null;
-  });
-  // The specific topics the welcome let them narrow an area to, if any: an
-  // area narrowed there pre-selects only those categories here.
-  const [guestSeedTopics] = useState(() => readGuestInterests()?.topics ?? []);
+  // What this visitor answered before they had an account (GuestWelcome, or
+  // the header chip's GuestInterestsPrompt). Read once: the answer is the
+  // starting point, not a live source. With areas in it, those areas and
+  // topics are the preferences and the pickers are not shown at all.
+  // AuthContext clears the answer once completeOnboarding has written them.
+  const [guestAnswer] = useState(() => readGuestInterests());
+  const guestSeed = guestAnswer?.areas.length ? guestAnswer.areas : null;
   // The university address typed on the welcome, if any: the link needs an
   // account, so it is completed here, with the address already in the field.
-  const [guestInstitutionEmail] = useState(() => readGuestInterests()?.institutionEmail ?? '');
-  const [stepState, setStep] = useState(guestSeed ? 4 : 1);
+  // InstitutionLink links it on mount, so it is offered on the first visit
+  // only: after an Unlink, coming back must not link it again unasked.
+  const [guestInstitutionEmail, setGuestInstitutionEmail] = useState(() => guestAnswer?.institutionEmail ?? '');
+  // The link field's address, kept here because the page's primary changes
+  // with it: with one typed it submits the link, without one it finishes.
+  const [institutionEmail, setInstitutionEmail] = useState(() => guestAnswer?.institutionEmail ?? '');
+  const [linkBusy, setLinkBusy] = useState(false);
+  const still = Boolean(useReducedMotion());
+  const [stepState, setStep] = useState(0);
+  const [direction, setDirection] = useState(1);
   const [selectedAreas, setSelectedAreas] = useState(() => new Set(guestSeed ?? []));
-  const [selectedSubcategories, setSelectedSubcategories] = useState(() => new Set(guestSeedCategoriesForAreas(guestSeed ?? [], GUEST_SEED_PER_AREA, guestSeedTopics)));
-  // Whether the receipt still shows the guest answer untouched. Once they
-  // go back and adjust, it is their selection, and the copy says so.
-  const [seedAdjusted, setSeedAdjusted] = useState(false);
+  const [selectedTopics, setSelectedTopics] = useState(() => new Set(guestAnswer?.topics ?? []));
+  const [expandedAreas, setExpandedAreas] = useState(() => new Set());
   const [saving, setSaving] = useState(false);
   const [visibilityDraft, setVisibilityDraft] = useState(null);
   const [handleDraft, setHandleDraft] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [profileError, setProfileError] = useState(null);
   const [existingProfile, setExistingProfile] = useState(false);
+  const [bio, setBio] = useState('');
+  // The chosen photo, prepared twice as Settings does: the account's copy
+  // (navbar) and the smaller public one.
+  const [photo, setPhoto] = useState(null);
+  // On by default, as in the profile editor; off publishes the initial.
+  const [showAccountPhoto, setShowAccountPhoto] = useState(true);
   // Set the moment createUserProfile succeeds. A retry after a failed
   // completeOnboarding must skip the create: the handle is already this
   // account's, and a second create hits its own reservation as "taken".
   const profileCreated = useRef(false);
-  const { completeOnboarding, onboardingComplete, user, institution } = useAuth();
+  const { completeOnboarding, onboardingComplete, updateProfilePhoto, user, institution } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
@@ -137,8 +358,15 @@ export default function OnboardingFlow() {
     ? location.state.returnTo
     : '/feed';
 
-  const step = existingProfile && stepState > 3 ? 3 : stepState;
-  const visibleSteps = existingProfile ? STEPS.slice(0, 3) : STEPS;
+  const asksTopics = !guestSeed;
+  const asksPage = !existingProfile && visibilityDraft === PROFILE_VISIBILITY.public;
+  const steps = onboardingSteps({ asksTopics, asksProfile: !existingProfile, asksPage });
+  // Every change to the list happens at or after the current screen: the
+  // profile read settling (a reader already on the profile screen lands on
+  // the one that took its place) and the visibility choice, made on the
+  // screen just before the handle and about screens it adds or removes.
+  const stepIndex = Math.min(stepState, steps.length - 1);
+  const step = steps[stepIndex];
   const handleCheck = useMemo(() => inspectHandle(handleDraft), [handleDraft]);
   const handleError = handleCheck.valid
     ? null
@@ -147,10 +375,25 @@ export default function OnboardingFlow() {
     ? String(user.displayName).slice(0, USER_PROFILE_LIMITS.displayName)
     : '';
   const resolvedDisplayName = displayName.trim() || googleDisplayName;
+  const firstName = googleDisplayName.trim().split(/\s+/)[0];
+  // What the public page will show, and so what the preview shows: the
+  // chosen photo, else the account's unless switched off, else nothing (the
+  // initial).
+  const accountPhoto = publicAvatarFrom(null, user?.photoURL);
+  const publicPhoto = photo?.public || (showAccountPhoto ? accountPhoto : '');
 
-  // Más de esto lo rechazan las rules; el pie lo dice antes de que el botón
-  // se apague, y el paso del perfil no puede acabar con una lista así.
-  const overCap = selectedSubcategories.size > USER_PREFERENCES_MAX;
+  // The welcome's rule, the only one: an area with topics ticked stands for
+  // those, an area left whole for its first few.
+  const preferences = useMemo(
+    () => guestSeedCategoriesForAreas(Array.from(selectedAreas), GUEST_SEED_PER_AREA, Array.from(selectedTopics)),
+    [selectedAreas, selectedTopics],
+  );
+  // The size before the rules' cap: past it, the seed would drop ticked topics
+  // without a word, so the reader is asked to drop them instead.
+  const preferenceCount = guestSeedSizeForAreas(Array.from(selectedAreas), GUEST_SEED_PER_AREA, Array.from(selectedTopics));
+  // Judged only where the reader can act on it, on the pickers' path. A guest
+  // answer never reaches the pickers, and its seed is cut at the rules' cap.
+  const overCap = asksTopics && preferenceCount > USER_PREFERENCES_MAX;
 
   useEffect(() => {
     if (onboardingComplete) navigate(returnTo, { replace: true });
@@ -168,76 +411,47 @@ export default function OnboardingFlow() {
     trackEvent('tutorial_begin', { language });
   }, [language, trackEvent]);
 
-  const toggleArea = (areaKey) => {
-    setSelectedAreas((prev) => {
-      const next = new Set(prev);
-      if (next.has(areaKey)) {
-        next.delete(areaKey);
-        // Also remove subcategories of this area
-        const area = CATEGORIES[areaKey];
-        setSelectedSubcategories((prevSubs) => {
-          const nextSubs = new Set(prevSubs);
-          Object.keys(area.subcategories).forEach((id) => nextSubs.delete(id));
-          return nextSubs;
-        });
-      } else {
-        next.add(areaKey);
-      }
-      return next;
-    });
+  const goTo = (nextIndex) => {
+    if (saving || nextIndex === stepIndex || nextIndex < 0 || nextIndex >= steps.length) return;
+    setDirection(nextIndex > stepIndex ? 1 : -1);
+    setStep(nextIndex);
+    setProfileError(null);
+    if (step === 'university') setGuestInstitutionEmail('');
+    // A screen is a page: it starts at the top.
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
-  const toggleSubcategory = (catId) => {
-    setSelectedSubcategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(catId)) next.delete(catId);
-      else next.add(catId);
+  const toggleArea = (key) => {
+    const removing = selectedAreas.has(key);
+    setSelectedAreas((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
-  };
-
-  const selectAllInArea = (areaKey) => {
-    const area = CATEGORIES[areaKey];
-    const ids = Object.keys(area.subcategories);
-
-    // Pure check using current state directly
-    const allSelected = ids.every((id) => selectedSubcategories.has(id));
-
-    // Batch subcategory state update to run once
-    setSelectedSubcategories((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => {
-        if (allSelected) next.delete(id);
-        else next.add(id);
-      });
-      return next;
-    });
-  };
-
-  const handleNext = () => {
-    if (step === 1 && selectedAreas.size > 0) {
-      setStep(2);
-    } else if (step === 2 && selectedSubcategories.size > 0 && !overCap) {
-      setStep(3);
-    } else if (step === 3 && !existingProfile) {
-      setStep(4);
+    // An area let go takes its topics with it, so ticking it again starts
+    // from the whole area rather than from a narrowing nobody can see.
+    if (removing) {
+      const ofArea = new Set(Object.keys(CATEGORIES[key].subcategories));
+      setSelectedTopics(previous => new Set([...previous].filter(id => !ofArea.has(id))));
     }
   };
 
-  const handleBack = () => {
-    // Leaving the receipt backwards is the reader taking the pick into their
-    // own hands; going from the profile step back to the receipt is not.
-    if (step === 3 && guestSeed) setSeedAdjusted(true);
-    if (step > 1) setStep(step - 1);
+  const toggleTopic = (id) => {
+    setSelectedTopics((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  // «Ajustar intereses» desde el paso del perfil: la selección pasa a ser
-  // suya (la copia del recibo lo dice) y se abre el paso de categorías con
-  // las áreas de la respuesta de invitado ya marcadas.
-  const adjustInterests = () => {
-    setSeedAdjusted(true);
-    setStep(2);
-  };
+  const toggleExpanded = (key) => setExpandedAreas((previous) => {
+    const next = new Set(previous);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
 
   const handleFinish = async () => {
     if (overCap) return;
@@ -252,21 +466,29 @@ export default function OnboardingFlow() {
         await createUserProfile({
           handle: handleCheck.handle,
           displayName: resolvedDisplayName,
-          bio: '',
+          bio,
           allowContact: false,
-          photo: '',
+          photo: publicPhoto,
           visibility: PROFILE_VISIBILITY.public,
           institution,
         });
         profileCreated.current = true;
       }
-      await completeOnboarding(Array.from(selectedSubcategories));
+      // The navbar shows the account's copy, as after a change in Settings.
+      // Repeating it on a retry writes the same value again.
+      if (asksPage && photo) await updateProfilePhoto(photo.account);
+      await completeOnboarding(preferences);
       trackEvent('tutorial_complete', { language });
       markActivation();
       navigate(returnTo, { replace: true });
     } catch (err) {
       if (err instanceof HandleUnavailableError) {
-        setProfileError('That handle is already taken. Try another.');
+        // The handle is fixed on its own screen, so that is where the reader
+        // is taken, with the reason under the field.
+        setDirection(-1);
+        setStep(steps.indexOf('handle'));
+        setGuestInstitutionEmail('');
+        setProfileError(COPY.handle.handleTaken);
       } else if (err?.code === 'ONBOARDING_WRITE_TIMEOUT') {
         // completeOnboarding's write is a merge-set of the same fields, and
         // profileCreated (above) already stops a second profile claim, so
@@ -281,490 +503,243 @@ export default function OnboardingFlow() {
     }
   };
 
-  const canProceed =
-    (step === 1 && selectedAreas.size > 0) ||
-    (step === 2 && selectedSubcategories.size > 0 && !overCap) ||
-    step === 3 ||
-    (step === 4 && !overCap && (
-      visibilityDraft === PROFILE_VISIBILITY.private
-      || (visibilityDraft === PROFILE_VISIBILITY.public
-        && handleCheck.valid
-        && resolvedDisplayName)
-    ));
+  // The areas have to be answered, the profile question chosen and, for a
+  // public profile, a valid handle and a name given. The topics do not: an
+  // area left un-narrowed stands for all of it. Past the cap nothing moves
+  // forward.
+  const primaryDisabled = (step === 'topics' && selectedAreas.size === 0)
+    || (step !== 'topics' && overCap)
+    || (step === 'profile' && !visibilityDraft)
+    || (step === 'handle' && !(handleCheck.valid && resolvedDisplayName));
 
-  /* ── Cifras derivadas ──
-     El pie de página cuenta en voz alta lo que hay elegido, que es lo que el
-     diseño anterior no decía en ninguna parte: el botón se apagaba y ya. */
-  const availableSubcategories = useMemo(
-    () => Array.from(selectedAreas).reduce((n, key) => n + (AREA_SIZES[key] ?? 0), 0),
-    [selectedAreas]
-  );
-
-  const areasWithPicks = useMemo(
-    () => Array.from(selectedAreas).filter((key) =>
-      Object.keys(CATEGORIES[key].subcategories).some((id) => selectedSubcategories.has(id))
-    ).length,
-    [selectedAreas, selectedSubcategories]
-  );
-
-  /* El recibo del paso 3: por área, cuántas entran, de cuántas, y una muestra. */
-  const receipt = useMemo(() => (
-    Array.from(selectedAreas).map((key) => {
-      const area = CATEGORIES[key];
-      const ids = Object.keys(area.subcategories);
-      const chosen = ids.filter((id) => selectedSubcategories.has(id));
-      if (chosen.length === 0) return null;
-      const sample = chosen.slice(0, 3).map((id) => {
-        const cat = area.subcategories[id];
-        return cat.label || cat.label;
-      });
-      return { key, area, count: chosen.length, total: ids.length, sample, rest: chosen.length - sample.length };
-    }).filter(Boolean)
-  ), [selectedAreas, selectedSubcategories]);
-
-  const plural = (n, one, many) => (n === 1 ? one : many);
-
-  const tally = step === 1
-    ? (selectedAreas.size > 0
-      ? `${selectedAreas.size} ${plural(selectedAreas.size, 'area', 'areas')} · ${availableSubcategories} ${plural(availableSubcategories, 'category', 'categories')}`
-      : ('No areas selected'))
-    : (selectedSubcategories.size > 0
-      ? `${selectedSubcategories.size} ${plural(selectedSubcategories.size, 'category', 'categories')} · ${areasWithPicks} ${'of'} ${selectedAreas.size}`
-      : ('No categories selected'));
-
-  const hint = step === 1
-    ? (selectedAreas.size > 0
-      ? ('Next you pick which of those categories make it into your feed.')
-      : ('Select at least one area to continue.'))
-    : overCap
-      ? (`At most ${USER_PREFERENCES_MAX} categories: drop ${selectedSubcategories.size - USER_PREFERENCES_MAX}.`)
-      : (selectedSubcategories.size > 0
-        ? ('That is enough to build your feed.')
-        : ('Select at least one category to continue.'));
-
+  const isLast = stepIndex === steps.length - 1;
+  const stepCopy = COPY[step];
+  const handleTaken = step === 'handle' && profileError === COPY.handle.handleTaken;
+  const handleInvalid = handleTaken || (Boolean(handleDraft) && Boolean(handleError));
+  // On the university screen an address typed and nothing linked yet makes
+  // the primary the link's submit: Google's window has to open from a press.
+  const linksOnPress = step === 'university' && !institution && institutionEmail.trim() !== '';
   return (
-    <div className="onboarding">
-      {/* El papel cuadriculado solo en la entrada, para enlazar con la pantalla
-          de acceso; detrás de las categorías sería ruido. */}
-      {step === 1 && <div className="onboarding-paper" aria-hidden="true" />}
-
-      <header className="onboarding-bar">
-        <span className="onboarding-brand">
-          <span className="onboarding-mark">P</span>
-          <span className="onboarding-wordmark">Paper<span>Tok</span></span>
-        </span>
-        <span className="onboarding-stepcount">
-          {'Step'} <b>{visibleSteps[step - 1].n}</b> / {String(visibleSteps.length).padStart(2, '0')}
-        </span>
-      </header>
-
-      <div className="onboarding-body">
-        <nav className="onboarding-rail" aria-label={'Progress'}>
-          {visibleSteps.map((s, i) => (
-            <div
-              key={s.n}
-              className={`onboarding-rail-seg ${i + 1 === step ? 'is-active' : ''} ${i + 1 < step ? 'is-done' : ''}`}
-              aria-current={i + 1 === step ? 'step' : undefined}
-            >
-              <span className="onboarding-rail-n">{s.n}</span>
-              <span className="onboarding-rail-t">{s.label}</span>
-            </div>
-          ))}
-        </nav>
-
-        {/* ── Paso 1: las áreas ── */}
-        {step === 1 && (
-          <div className="onboarding-step" key="step1">
-            <div className="onboarding-head">
-              <div className="onboarding-head-copy">
-                <span className="onboarding-eyebrow">{'Let’s begin'}</span>
-                <h1 className="onboarding-title">
-                  {'Choose your areas of interest'}
-                </h1>
-                <p className="onboarding-lede">
-                  {'This is what your feed is built from. Mark the ones you care about — next you narrow down the specific categories, and you can change it any time from Settings.'}
-                </p>
-              </div>
-              <div className="onboarding-meter">
-                <span className="onboarding-meter-n">
-                  {selectedAreas.size}<i>/{AREA_ENTRIES.length}</i>
-                </span>
-                <span className="onboarding-meter-l">{'Areas selected'}</span>
-              </div>
-            </div>
-
-            <div className="onboarding-areas">
-              {AREA_ENTRIES.map(([key, area]) => {
-                const isSelected = selectedAreas.has(key);
-                return (
-                  // The shared Toggle: a native button that writes `aria-pressed`
-                  // and `data-pressed`; the card's CSS reads the attribute.
-                  <Toggle
-                    key={key}
-                    variant="outline"
-                    className="area-card"
-                    pressed={isSelected}
-                    onPressedChange={() => toggleArea(key)}
-                    style={{ '--area-accent': area.gradient }}
-                  >
-                    <span className="area-card-top">
-                      <span className="area-card-icon"><area.icon size={20} /></span>
-                      <span className="area-card-count">
-                        {AREA_SIZES[key]} {'cat.'}
-                      </span>
-                      <span className="area-card-box"><Check size={11} weight="bold" /></span>
-                    </span>
-                    <span className="area-card-name">
-                      <span>{area.label}</span>
-                    </span>
-                    <span className="area-card-desc">
-                      {area.description}
-                    </span>
-                  </Toggle>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── Paso 2: las categorías ── */}
-        {step === 2 && (
-          <div className="onboarding-step" key="step2">
-            <div className="onboarding-head">
-              <div className="onboarding-head-copy">
-                <span className="onboarding-eyebrow">
-                  {selectedAreas.size} {plural(selectedAreas.size, 'area', 'areas')}
-                  {' · '}
-                  {availableSubcategories} {'categories available'}
-                </span>
-                <h1 className="onboarding-title">
-                  {'Refine your interests'}
-                </h1>
-                <p className="onboarding-lede">
-                  {'Only the categories you mark here reach your feed. The fewer you pick, the tighter it gets — and you can always add more later.'}
-                </p>
-              </div>
-              <div className="onboarding-meter">
-                <span className="onboarding-meter-n">
-                  {selectedSubcategories.size}<i>/{availableSubcategories}</i>
-                </span>
-                <span className="onboarding-meter-l">{'Categories selected'}</span>
-              </div>
-            </div>
-
-            <div className="onboarding-subcategories">
-              {Array.from(selectedAreas).map((areaKey) => {
-                const area = CATEGORIES[areaKey];
-                const subcatIds = Object.keys(area.subcategories);
-                const chosen = subcatIds.filter((id) => selectedSubcategories.has(id)).length;
-                const allSelected = chosen === subcatIds.length;
-                return (
-                  <section key={areaKey} className="subcat-section" style={{ '--area-accent': area.gradient }}>
-                    <div className="subcat-section-header">
-                      <span className="subcat-section-icon"><area.icon size={18} /></span>
-                      <h2 className="subcat-section-title">{area.label}</h2>
-                      <span className="subcat-section-count">{chosen} / {subcatIds.length}</span>
-                      <button
-                        type="button"
-                        className={`subcat-select-all ${allSelected ? 'is-active' : ''}`}
-                        onClick={() => selectAllInArea(areaKey)}
-                      >
-                        {allSelected
-                          ? ('Deselect all')
-                          : ('Select all')}
-                      </button>
-                    </div>
-                    <div className="subcat-chips">
-                      {Object.entries(area.subcategories).map(([catId, cat]) => {
-                        const isSelected = selectedSubcategories.has(catId);
-                        return (
-                          <Toggle
-                            key={catId}
-                            variant="outline"
-                            className="subcat-chip"
-                            pressed={isSelected}
-                            onPressedChange={() => toggleSubcategory(catId)}
-                          >
-                            <span className="subcat-chip-dot" />
-                            {cat.label || cat.label}
-                          </Toggle>
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── Paso 3: el recibo ── */}
-        {step === 3 && (
-          <div className="onboarding-step onboarding-step--confirm" key="step3">
-            <div className="onboarding-confirm-copy">
-              <span className="onboarding-eyebrow">
-                {guestSeed && !seedAdjusted
-                  ? ('What you picked as a guest')
-                  : ('Done')}
-              </span>
-              <h1 className="onboarding-title onboarding-title--big">
-                {<>Your feed is <span>ready</span></>}
-              </h1>
-              <p className="onboarding-lede">
-                {guestSeed && !seedAdjusted
-                  ? (`We kept the ${selectedAreas.size} ${selectedAreas.size === 1 ? 'area' : 'areas'} you picked before signing in — every one of its ${selectedSubcategories.size} categories. Narrow it down now, or any time from Settings.`)
-                  : (`You will see papers from the ${selectedSubcategories.size} categories you picked, ordered by what works for you. You can adjust the selection any time from Settings.`)}
-              </p>
-              <div className="onboarding-actions">
-                {existingProfile ? (
-                  <button
-                    type="button"
-                    className="onboarding-btn onboarding-btn--ink onboarding-btn--lg"
-                    onClick={handleFinish}
-                    disabled={saving || overCap}
-                  >
-                    {saving ? (
-                      <span className="onboarding-spinner" />
-                    ) : (
-                      <>
-                        {'Start exploring'}
-                        <ArrowRight size={16} weight="bold" />
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="onboarding-btn onboarding-btn--ink onboarding-btn--lg"
-                    onClick={handleNext}
-                    disabled={saving}
-                  >
-                    {'Next: your profile'}
-                    <ArrowRight size={16} weight="bold" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="onboarding-btn onboarding-btn--ghost"
-                  onClick={handleBack}
-                  disabled={saving}
-                >
-                  {'Adjust selection'}
-                </button>
-              </div>
-            </div>
-
-            <div className="onboarding-confirm-receipt">
-              <InterestsReceipt
-                rows={receipt}
-                total={selectedSubcategories.size}
-                available={availableSubcategories || TOTAL_SUBCATEGORIES}
-               
-              />
-              <span className="onboarding-receipt-note">
-                {'Saved to your profile'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="onboarding-step onboarding-step--profile" key="step4">
-            <div className="onboarding-head">
-              <div className="onboarding-head-copy">
-                <span className="onboarding-eyebrow">{'One last thing'}</span>
-                <h1 className="onboarding-title">
-                  {'Do you want a public profile?'}
-                </h1>
-                <p className="onboarding-lede">
-                  {'If you do, pick a handle. That is the name other people will see and the address of your page. You can stay private and skip this — Settings can create it later.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Lo que vino de la respuesta de invitado, a la vista y con su
-                botón: la nota de una línea que había aquí nadie la
-                relacionaba con «elige tus intereses» (auditoría del 16-09). */}
-            {guestSeed && (
-              <section className="onboarding-seed-receipt" aria-labelledby="onboarding-seed-title">
-                <div className="onboarding-seed-receipt-head">
-                  <div>
-                    <span className="onboarding-eyebrow" id="onboarding-seed-title">
-                      {'Your interests'}
-                    </span>
-                    <p className="onboarding-seed-receipt-lede">
-                      {seedAdjusted
-                        ? ('What you chose. Adjust it here, or any time from Settings.')
-                        : (`From the ${selectedAreas.size} ${selectedAreas.size === 1 ? 'area' : 'areas'} you picked as a guest: the ${selectedSubcategories.size} categories your feed starts from. Adjust them here, or any time from Settings.`)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="onboarding-btn onboarding-btn--ghost"
-                    onClick={adjustInterests}
-                    disabled={saving}
-                  >
-                    {'Adjust interests'}
-                  </button>
-                </div>
-                <InterestsReceipt
-                  rows={receipt}
-                  total={selectedSubcategories.size}
-                  available={availableSubcategories || TOTAL_SUBCATEGORIES}
-                 
-                />
-              </section>
-            )}
-
-            <VisibilityChoice
-              value={visibilityDraft}
-              onChange={(value) => {
-                setVisibilityDraft(value);
-                setProfileError(null);
-              }}
-             
-              idPrefix="onboarding-visibility"
-            />
-
-            {visibilityDraft === PROFILE_VISIBILITY.public && (
-              <div className="onboarding-profile-fields">
-                <div className="onboarding-field">
-                  <Label htmlFor="onboarding-handle">{'Public handle'}</Label>
-                  <div className="onboarding-handle-input">
-                    <span aria-hidden="true">@</span>
-                    <Input
-                      id="onboarding-handle"
-                      value={handleDraft}
-                      onChange={event => {
-                        setHandleDraft(event.target.value.toLowerCase());
-                        setProfileError(null);
-                      }}
-                      maxLength={HANDLE_MAX_LENGTH}
-                      autoComplete="username"
-                      spellCheck="false"
-                      required
-                      aria-required="true"
-                      aria-invalid={Boolean(handleDraft) && Boolean(handleError)}
-                      aria-describedby="onboarding-handle-hint"
-                    />
-                  </div>
-                  <p
-                    id="onboarding-handle-hint"
-                    className={`onboarding-field-hint${handleDraft && handleError ? ' is-error' : ''}`}
-                    aria-live="polite"
-                  >
-                    {handleDraft && handleError
-                      ? handleError
-                      : ('Lowercase letters, numbers and underscores.')}
-                  </p>
-                </div>
-                <div className="onboarding-field">
-                  <Label htmlFor="onboarding-display-name">{'Display name'}</Label>
-                  <Input
-                    id="onboarding-display-name"
-                    value={displayName || googleDisplayName}
-                    onChange={event => setDisplayName(event.target.value)}
-                    maxLength={USER_PROFILE_LIMITS.displayName}
-                    autoComplete="nickname"
-                    required
-                    aria-required="true"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* A card like the visibility options above it: icon, title, one
-                sentence, and the form. It turns blue once linked, the colour
-                the institution pill wears everywhere else. */}
-            <section
-              className={`onboarding-institution${institution ? ' is-linked' : ''}`}
-              aria-labelledby="onboarding-institution-title"
-            >
-              <div className="onboarding-institution-head">
-                <span className="onboarding-institution-icon" aria-hidden="true">
-                  <GraduationCap size={20} weight={institution ? 'fill' : 'regular'} />
-                </span>
-                <div className="onboarding-institution-copy">
-                  <div className="onboarding-institution-title-line">
-                    <h2 id="onboarding-institution-title">{'Link your university'}</h2>
-                    <span className="onboarding-institution-tag">{'Optional'}</span>
-                  </div>
-                  <p>
-                    {institution
-                      ? 'Papers behind a paywall can open through your library. You can unlink it from Settings.'
-                      : 'Sign in once with your university\'s Google account, and papers behind a paywall can open through your library.'}
-                  </p>
-                </div>
-              </div>
-              <InstitutionLink idPrefix="onboarding-institution" defaultEmail={guestInstitutionEmail} />
-            </section>
-
-            {profileError && (
-              <p className="onboarding-profile-error" role="alert">{profileError}</p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Pie: el recuento vive aquí, y el botón por fin se lee ── */}
-      {(step < 3 || step === 4) && (
-        <footer className="onboarding-foot">
-          <div className="onboarding-foot-inner">
-            {step === 4 ? (
-              <div className="onboarding-tally">
-                <span className={`onboarding-tally-n ${canProceed ? 'is-on' : ''}`}>
-                  {visibilityDraft === PROFILE_VISIBILITY.public
-                    ? ('Public profile')
-                    : visibilityDraft === PROFILE_VISIBILITY.private
-                      ? ('Private account')
-                      : ('Choose one to continue.')}
-                </span>
-                <span className="onboarding-tally-hint">
-                  {'You can change this later in Settings.'}
-                </span>
-              </div>
-            ) : (
-              <div className="onboarding-tally">
-                <span className={`onboarding-tally-n ${canProceed ? 'is-on' : ''}`}>{tally}</span>
-                <span className="onboarding-tally-hint">{hint}</span>
-              </div>
-            )}
-            {step > 1 && (
-              <button type="button" className="onboarding-btn onboarding-btn--ghost" onClick={handleBack}>
-                <ArrowLeft size={15} weight="bold" />
-                {'Back'}
-              </button>
-            )}
-            {step === 4 ? (
-              <button
-                type="button"
-                className="onboarding-btn onboarding-btn--ink"
-                onClick={handleFinish}
-                disabled={!canProceed || saving}
-              >
-                {saving ? (
-                  <span className="onboarding-spinner" />
-                ) : (
-                  <>
-                    {'Start exploring'}
-                    <ArrowRight size={15} weight="bold" />
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="onboarding-btn onboarding-btn--ink"
-                onClick={handleNext}
-                disabled={!canProceed}
-              >
-                {'Next'}
-                <ArrowRight size={15} weight="bold" />
-              </button>
-            )}
-          </div>
-        </footer>
+    <WelcomeShell
+      stepKey={step}
+      direction={direction}
+      still={still}
+      stageClassName={step === 'welcome' ? undefined : 'gw-stage--topics'}
+      dots={{ count: steps.length, index: stepIndex, label: COPY.stepOf, ariaLabel: COPY.progress }}
+      // While saving, the button stays enabled so it keeps focus; handleFinish
+      // is simply not called a second time.
+      // While the skip's save runs the primary is the plain one again, saying
+      // so: bound to the form, a press would still start a link.
+      primary={linksOnPress && !saving
+        ? {
+          label: linkBusy ? COPY.university.verifying : COPY.university.link,
+          busy: linkBusy,
+          form: UNIVERSITY_FORM_ID,
+          disabled: primaryDisabled,
+        }
+        : {
+          label: saving ? COPY.saving : stepCopy.cta,
+          busy: saving,
+          onClick: () => {
+            if (saving) return;
+            if (isLast) void handleFinish();
+            else goTo(stepIndex + 1);
+          },
+          disabled: primaryDisabled,
+        }}
+      back={stepIndex > 0 ? { onClick: () => goTo(stepIndex - 1), label: COPY.back } : null}
+      // Until an institution is linked the university screen can be left
+      // without one, whatever is typed; while Google is open it cannot.
+      // Skipping the page screen means none of it: what was typed or chosen
+      // there is dropped, so nothing reaches the public profile unasked.
+      skip={step === 'about'
+        ? { onClick: () => { setBio(''); setPhoto(null); goTo(stepIndex + 1); }, label: COPY.about.skip }
+        : step === 'university' && !institution && !linkBusy
+          ? { onClick: () => { if (!saving) void handleFinish(); }, label: COPY.university.skip }
+          : null}
+    >
+      {step === 'welcome' ? (
+        <WelcomeCopy
+          kicker={COPY.welcome.kicker(firstName)}
+          title={(
+            <>
+              <span className="sr-only">{COPY.welcome.title}</span>
+              <ScriptTitle still={still} />
+            </>
+          )}
+          lede={COPY.welcome.lede}
+        />
+      ) : (
+        <WelcomeCopy kicker={stepCopy.kicker} title={stepCopy.title} lede={stepCopy.lede} />
       )}
-    </div>
+
+      {step === 'topics' && <AreaPicker selected={selectedAreas} onToggle={toggleArea} label={COPY.topics.areasLabel} />}
+
+      {step === 'subtopics' && (
+        <SubtopicsPicker
+          selectedAreas={selectedAreas}
+          selectedTopics={selectedTopics}
+          onToggleTopic={toggleTopic}
+          expandedAreas={expandedAreas}
+          onToggleExpanded={toggleExpanded}
+        />
+      )}
+
+      {/* On every screen of the pickers' path, empty until the cap is
+          passed, so the live region exists before its text arrives. */}
+      {asksTopics && (
+        <p className="gw-preference-note" aria-live="polite">
+          {overCap
+            ? `At most ${USER_PREFERENCES_MAX} categories: drop ${preferenceCount - USER_PREFERENCES_MAX}.`
+            : ''}
+        </p>
+      )}
+
+      {step === 'profile' && (
+        <div className="gw-preferences onboarding-profile">
+          <VisibilityChoice
+            value={visibilityDraft}
+            onChange={(value) => {
+              setVisibilityDraft(value);
+              setProfileError(null);
+            }}
+            idPrefix="onboarding-visibility"
+          />
+        </div>
+      )}
+
+      {/* The handle screen: the address it makes, in a browser window, over
+          the field that makes it. */}
+      {step === 'handle' && (
+        <div className="gw-preferences onboarding-handle">
+          <AddressWindow handle={handleDraft} valid={handleCheck.valid && !handleTaken} still={still} />
+          <Fields still={still}>
+            <div className="onboarding-field">
+              <Label htmlFor="onboarding-handle">{COPY.handle.handleLabel}</Label>
+              <div className="onboarding-handle-input">
+                <span aria-hidden="true">@</span>
+                <Input
+                  id="onboarding-handle"
+                  value={handleDraft}
+                  onChange={event => {
+                    setHandleDraft(event.target.value.toLowerCase());
+                    setProfileError(null);
+                  }}
+                  placeholder="yourhandle"
+                  maxLength={HANDLE_MAX_LENGTH}
+                  autoComplete="username"
+                  spellCheck="false"
+                  required
+                  aria-required="true"
+                  aria-invalid={handleInvalid}
+                  aria-describedby="onboarding-handle-hint"
+                />
+              </div>
+              <p
+                id="onboarding-handle-hint"
+                className={`onboarding-field-hint${handleInvalid ? ' is-error' : ''}`}
+                aria-live="polite"
+              >
+                {handleTaken
+                  ? COPY.handle.handleTaken
+                  : handleDraft && handleError
+                    ? handleError
+                    : COPY.handle.handleHint}
+              </p>
+            </div>
+            <div className="onboarding-field">
+              <Label htmlFor="onboarding-display-name">{COPY.handle.nameLabel}</Label>
+              <Input
+                id="onboarding-display-name"
+                value={displayName || googleDisplayName}
+                onChange={event => setDisplayName(event.target.value)}
+                maxLength={USER_PROFILE_LIMITS.displayName}
+                autoComplete="nickname"
+                required
+                aria-required="true"
+              />
+            </div>
+          </Fields>
+        </div>
+      )}
+
+      {/* The about screen: the photo is the object, landing as the welcome's
+          library card does, with the name it will stand beside; the switch
+          and the bio are the controls under it. */}
+      {step === 'about' && (
+        <div className="gw-preferences onboarding-about">
+          <motion.div
+            className="onboarding-avatar"
+            initial={still ? false : { opacity: 0, transform: 'translateY(16px) rotate(-6deg)' }}
+            animate={{ opacity: 1, transform: 'translateY(0px) rotate(0deg)' }}
+            transition={{ ...LANDING, delay: 0.1, opacity: { duration: 0.3, ease: ARRIVE_EASE, delay: 0.1 } }}
+          >
+            {/* The shared picker prepares both copies (with the crop) before
+                it calls onChange, so there is nothing to wait for here. */}
+            <AvatarPicker
+              value={photo}
+              fallbackSrc={showAccountPhoto ? accountPhoto : ''}
+              initial={resolvedDisplayName.trim().charAt(0).toUpperCase()}
+              size={120}
+              disabled={saving}
+              onChange={setPhoto}
+            />
+          </motion.div>
+          <p className="onboarding-about-name">{resolvedDisplayName}</p>
+          <Fields still={still}>
+            {/* The editor's switch, with its copy: a chosen photo replaces it. */}
+            {accountPhoto && !photo && (
+              <Label className="onboarding-switch">
+                <span className="onboarding-switch-copy">
+                  <span className="onboarding-switch-label">{COPY.about.showPhoto}</span>
+                  <span className="onboarding-switch-hint">{COPY.about.showPhotoHint}</span>
+                </span>
+                <Switch checked={showAccountPhoto} onCheckedChange={setShowAccountPhoto} />
+              </Label>
+            )}
+            <div className="onboarding-field">
+              <div className="onboarding-field-head">
+                <Label htmlFor="onboarding-bio">{COPY.about.bio}</Label>
+                <span id="onboarding-bio-count" className="onboarding-bio-count">
+                  {bio.length} / {USER_PROFILE_LIMITS.bio}
+                </span>
+              </div>
+              <Textarea
+                id="onboarding-bio"
+                value={bio}
+                rows={3}
+                placeholder={COPY.about.bioPlaceholder}
+                onChange={event => setBio(event.target.value)}
+                maxLength={USER_PROFILE_LIMITS.bio}
+                aria-describedby="onboarding-bio-count"
+              />
+            </div>
+          </Fields>
+        </div>
+      )}
+
+      {/* The welcome's university screen, with the link in its field's
+          place: the primary below submits it. */}
+      {step === 'university' && (
+        <div className="gw-preferences gw-university onboarding-university">
+          <LibraryPreview still={still} />
+          <InstitutionLink
+            idPrefix="onboarding-institution"
+            defaultEmail={guestInstitutionEmail}
+            formId={UNIVERSITY_FORM_ID}
+            showSubmit={false}
+            email={institutionEmail}
+            onEmailChange={setInstitutionEmail}
+            onBusyChange={setLinkBusy}
+            linkedNote={COPY.university.linkedNote}
+          />
+        </div>
+      )}
+
+      {/* The taken handle is shown and announced by the field's own hint. */}
+      {profileError && !handleTaken && (
+        <p className="onboarding-profile-error" role="alert">{profileError}</p>
+      )}
+    </WelcomeShell>
   );
 }
