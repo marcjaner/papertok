@@ -10,20 +10,29 @@
  */
 
 import {
+  GETFTR_BATCH_SIZE,
   INSTITUTION_RESOLVERS,
   InstitutionAccessError,
-  askGetFtr,
+  askGetFtrBatch,
   askResolver,
 } from './institution-access.js';
 
 export const INSTITUTION_SERVICES_PATH = '/institution/services';
 
-// One deadline for every probe together. The whole catalogue at up to two
-// requests per platform must not run past the browser's wait (measured with
-// 53 platforms against USAL's resolver on 2026-10-14: 2.8 s), and a probe cut short
-// is reported as `partial` rather than as a platform the library lacks.
+// One deadline for every probe together. The whole catalogue must not run
+// past the browser's wait (measured with 66 platforms against USAL's resolver
+// on 2026-10-14: 3.2 s), and a probe cut short is reported as `partial`
+// rather than as a platform the library lacks.
 const SERVICES_DEADLINE_MS = 12000;
 const PROBE_CONCURRENCY = 4;
+// How many requests one lookup may send upstream. A Worker invocation on the
+// free plan may make 50 subrequests, and the route spends a handful around
+// this lookup (the identity check, the edge cache); the 66-platform
+// catalogue blew through it on 2026-10-14 and every USAL list came back 502.
+// GetFTR takes twenty DOIs per request, so with a key the whole catalogue is
+// a few requests; the resolver answers one journal per request, so without a
+// key the platforms past the budget are reported as unchecked, not absent.
+export const SUBREQUEST_BUDGET = 40;
 const FAILED = Symbol('failed');
 const UNCHECKED = Symbol('unchecked');
 
@@ -119,23 +128,12 @@ function namesPlatform(packageName, entry) {
 }
 
 /**
- * `{ collection, ownPlatform }` when the library subscribes (a null collection
- * when GetFTR said so), null when it does not, and UNCHECKED when a provider
- * answered without deciding (GetFTR's `maybe`, say) and none other is left.
- * Throws when no provider could answer, so the caller can report the list as
- * partial.
+ * The library's resolver on one platform's flagship journal:
+ * `{ collection, ownPlatform }` when it subscribes, null when it does not.
+ * Throws when the resolver could not answer, so the caller can report the
+ * list as partial.
  */
-async function probe(entry, { resolver, getFtr, entityId, rorId, env, fetchImpl, signal }) {
-  if (getFtr) {
-    let verdict = null;
-    try {
-      verdict = await askGetFtr({ doi: entry.doi, entityId, rorId }, env, fetchImpl, signal);
-    } catch (error) {
-      if (!resolver) throw error;
-    }
-    if (verdict) return verdict.status === 'entitled' ? { collection: null, ownPlatform: true } : null;
-    if (!resolver) return UNCHECKED;
-  }
+async function probeResolver(entry, resolver, fetchImpl, signal) {
   const answer = await askResolver(resolver, entry.issn, entry.year, fetchImpl, signal);
   if (!answer) throw new Error('unreadable resolver answer');
   // A free service is open access, which says nothing about the library. Among
@@ -148,6 +146,36 @@ async function probe(entry, { resolver, getFtr, entityId, rorId, env, fetchImpl,
   return subscription ? { collection: subscription.name, ownPlatform: Boolean(own) } : null;
 }
 
+/**
+ * GetFTR on the whole catalogue, a batch of DOIs per request. Fills
+ * `outcomes` with `{ collection: null, ownPlatform: true }`, null, or leaves
+ * a platform undefined for the resolver to decide (GetFTR's `maybe`, a
+ * publisher outside it) — UNCHECKED when there is no resolver to ask. A
+ * request that fails leaves its platforms to the resolver too, or FAILED
+ * without one. Returns the number of requests made.
+ */
+async function askGetFtrForCatalogue(outcomes, { resolver, entityId, rorId, env, fetchImpl, signal }) {
+  const batches = [];
+  for (let start = 0; start < SERVICE_CATALOGUE.length; start += GETFTR_BATCH_SIZE) {
+    batches.push(SERVICE_CATALOGUE.slice(start, start + GETFTR_BATCH_SIZE).map((entry, offset) => [start + offset, entry]));
+  }
+  await Promise.all(batches.map(async (batch) => {
+    let verdicts = null;
+    try {
+      verdicts = await askGetFtrBatch({ dois: batch.map(([, entry]) => entry.doi), entityId, rorId }, env, fetchImpl, signal);
+    } catch {
+      // Left null: the resolver takes the batch, or it counts as failed.
+    }
+    for (const [index, entry] of batch) {
+      const verdict = verdicts ? verdicts.get(entry.doi) : null;
+      if (verdict) outcomes[index] = verdict.status === 'entitled' ? { collection: null, ownPlatform: true } : null;
+      else if (resolver) outcomes[index] = undefined;
+      else outcomes[index] = verdicts ? UNCHECKED : FAILED;
+    }
+  }));
+  return batches.length;
+}
+
 export async function lookupInstitutionServices(
   { domain, entityId = null, rorId = null },
   { fetchImpl = (...args) => fetch(...args), env = {}, now = Date.now } = {},
@@ -155,19 +183,36 @@ export async function lookupInstitutionServices(
   const resolver = Object.hasOwn(INSTITUTION_RESOLVERS, domain) ? INSTITUTION_RESOLVERS[domain] : null;
   const getFtr = Boolean(env.GETFTR_API_KEY) && Boolean(entityId || rorId);
   if (!resolver && !getFtr) throw new InstitutionAccessError('INSTITUTION_NOT_SUPPORTED', 404);
-  const context = { resolver, getFtr, entityId, rorId, env, fetchImpl, signal: AbortSignal.timeout(SERVICES_DEADLINE_MS) };
+  const signal = AbortSignal.timeout(SERVICES_DEADLINE_MS);
 
-  const outcomes = new Array(SERVICE_CATALOGUE.length);
+  // `undefined` is a platform still to be asked about (filled: a hole would
+  // be skipped by the iteration below).
+  const outcomes = new Array(SERVICE_CATALOGUE.length).fill(undefined);
+  let budget = SUBREQUEST_BUDGET;
+  if (getFtr) {
+    budget -= await askGetFtrForCatalogue(outcomes, { resolver, entityId, rorId, env, fetchImpl, signal });
+  }
+
+  // The resolver, one journal per request, for what is still undecided and
+  // fits the budget; the rest is unchecked, in catalogue order, so the
+  // platforms most libraries hold are the ones asked about.
+  const pending = [];
+  outcomes.forEach((outcome, index) => {
+    if (outcome !== undefined) return;
+    if (resolver && pending.length < budget) pending.push(index);
+    else outcomes[index] = UNCHECKED;
+  });
   let next = 0;
   const drain = async () => {
-    while (next < SERVICE_CATALOGUE.length) {
-      const index = next++;
-      outcomes[index] = await probe(SERVICE_CATALOGUE[index], context).catch(() => FAILED);
+    while (next < pending.length) {
+      const index = pending[next++];
+      outcomes[index] = await probeResolver(SERVICE_CATALOGUE[index], resolver, fetchImpl, signal).catch(() => FAILED);
     }
   };
   await Promise.all(Array.from({ length: PROBE_CONCURRENCY }, drain));
 
-  if (outcomes.every(outcome => outcome === FAILED)) {
+  const asked = outcomes.filter(outcome => outcome !== UNCHECKED);
+  if (asked.length > 0 && asked.every(outcome => outcome === FAILED)) {
     throw new InstitutionAccessError('ACCESS_LOOKUP_UNAVAILABLE', 502);
   }
   const services = [];

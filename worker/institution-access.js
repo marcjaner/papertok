@@ -115,13 +115,20 @@ export function parseResolverAnswer(xml) {
   return { fullText: indicator === 'true', services };
 }
 
+/** The most DOIs one GetFTR request may carry (Entitlement API v2.7). */
+export const GETFTR_BATCH_SIZE = 20;
+
 /**
- * GetFTR's verdict, or null when it has none to give: `maybe`, a publisher
- * outside GetFTR or a per-DOI error leave the question to the resolver rather
- * than becoming an answer. The service being down throws, so that a caller
- * can tell an outage from a question nobody could answer.
+ * GetFTR's verdict on each DOI of one request, as a Map; a DOI it has no
+ * verdict for maps to null: `maybe`, a publisher outside GetFTR or a per-DOI
+ * error leave the question to the resolver rather than becoming an answer.
+ * The service being down throws, so that a caller can tell an outage from a
+ * question nobody could answer. One request, whatever the count: a Worker
+ * invocation has a subrequest budget, and the services list asks about
+ * every catalogue platform at once.
  */
-export async function askGetFtr({ doi, entityId, rorId }, env, fetchImpl, signal) {
+export async function askGetFtrBatch({ dois, entityId, rorId }, env, fetchImpl, signal) {
+  if (dois.length > GETFTR_BATCH_SIZE) throw new RangeError(`GetFTR takes at most ${GETFTR_BATCH_SIZE} DOIs per request`);
   const org = {};
   if (entityId) org.entityID = entityId;
   if (rorId) org.rorID = rorId;
@@ -133,16 +140,30 @@ export async function askGetFtr({ doi, entityId, rorId }, env, fetchImpl, signal
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({ org, dois: [doi] }),
+    body: JSON.stringify({ org, dois }),
   }, fetchImpl, signal);
   const payload = JSON.parse(text);
-  const entry = (Array.isArray(payload?.entitlements) ? payload.entitlements : [])
-    .find(item => String(item?.doi || '').toLowerCase() === doi);
+  const entries = Array.isArray(payload?.entitlements) ? payload.entitlements : [];
+  const verdicts = new Map();
+  for (const doi of dois) {
+    const entry = entries.find(item => String(item?.doi || '').toLowerCase() === doi);
+    verdicts.set(doi, verdictOf(entry));
+  }
+  return verdicts;
+}
+
+function verdictOf(entry) {
   if (!entry || entry.statusCode !== 200 || entry.source === 'publisher_not_supported') return null;
   if (entry.entitled === 'no') return { status: 'not-entitled', collection: null, url: null };
   if (entry.entitled !== 'yes') return null;
   const url = httpsUrl(entry.vor?.[0]?.url) || httpsUrl(entry.document);
   return url ? { status: 'entitled', collection: 'GetFTR', url } : null;
+}
+
+/** GetFTR's verdict on one DOI, or null (see `askGetFtrBatch`). */
+export async function askGetFtr({ doi, entityId, rorId }, env, fetchImpl, signal) {
+  const verdicts = await askGetFtrBatch({ dois: [doi], entityId, rorId }, env, fetchImpl, signal);
+  return verdicts.get(doi) ?? null;
 }
 
 function crossrefYear(work) {
