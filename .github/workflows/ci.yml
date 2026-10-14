@@ -34,14 +34,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # deploy.yml's Verify step plus `npm run build`. The build is what needs
-      # the VITE_* values: vite.config.js refuses to build a bundle that
-      # reaches no backend. Same repository variables as deploy.yml.
+      # The build is what needs the VITE_* values: vite.config.js refuses to
+      # build a bundle that reaches no backend. GitHub passes no repository
+      # variables to pull requests from forks, so those runs fall back to the
+      # public Worker URL (WORKER_PUBLIC_URL in wrangler.toml). This bundle is
+      # never deployed: Vercel builds production with its own environment, and
+      # the guard still applies there.
       - name: Check
         run: npm run check
         env:
           VITE_REPORT_API_URL: ${{ vars.VITE_REPORT_API_URL }}
-          VITE_PAPER_API_BASE_URL: ${{ vars.VITE_PAPER_API_BASE_URL }}
+          VITE_PAPER_API_BASE_URL: ${{ vars.VITE_PAPER_API_BASE_URL || 'https://api.papertok.app' }}
           VITE_SCOPUS_ENABLED: ${{ vars.VITE_SCOPUS_ENABLED }}
           VITE_UNPAYWALL_EMAIL: ${{ vars.VITE_UNPAYWALL_EMAIL }}
 

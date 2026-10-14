@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const CI = new URL('../../.github/workflows/ci.yml', import.meta.url);
 const PACKAGE = new URL('../../package.json', import.meta.url);
+const WRANGLER = new URL('../../wrangler.toml', import.meta.url);
 
 // A YAML comment runs from an unquoted `#` to the end of the line. The SHA
 // pins carry their tag in one (`# v4`), which is exactly the kind of text a
@@ -48,9 +49,16 @@ test('SOURCE: the check job is deploy.yml\'s Verify plus the build, on Node 22, 
   assert.match(check, /node-version: '22'/, 'CI is Node 22 (local is newer; the gap is real)');
   assert.match(check, /run: npm ci\n/, 'a clean install from the lockfile');
   assert.match(check, /run: npm run check\n/, 'one script, the same one a developer runs');
-  for (const name of ['VITE_REPORT_API_URL', 'VITE_PAPER_API_BASE_URL', 'VITE_SCOPUS_ENABLED', 'VITE_UNPAYWALL_EMAIL']) {
+  for (const name of ['VITE_REPORT_API_URL', 'VITE_SCOPUS_ENABLED', 'VITE_UNPAYWALL_EMAIL']) {
     assert.match(check, new RegExp(`${name}: \\$\\{\\{ vars\\.${name} \\}\\}`), `${name} comes from the repository variables, as in deploy.yml`);
   }
+  // Pull requests from forks receive no repository variables, and `vite build`
+  // refuses to run without a Worker URL, so those runs use the public one.
+  const workerUrl = (await readFile(WRANGLER, 'utf8')).match(/^WORKER_PUBLIC_URL = "([^"]+)"/m)?.[1];
+  assert.ok(
+    check.includes("VITE_PAPER_API_BASE_URL: ${{ vars.VITE_PAPER_API_BASE_URL || '" + workerUrl + "' }}"),
+    'VITE_PAPER_API_BASE_URL comes from the repository variable, or from wrangler.toml\'s WORKER_PUBLIC_URL on a fork PR',
+  );
   assert.doesNotMatch(check, /NODE_ENV/, 'NODE_ENV=production would reach lint and the tests too; vite build is production on its own');
 
   // `npm run check` must not be weaker than what deploy.yml verifies.
