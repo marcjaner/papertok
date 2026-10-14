@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GETFTR_BATCH_SIZE, InstitutionAccessError } from './institution-access.js';
-import { SERVICE_CATALOGUE, SUBREQUEST_BUDGET, lookupInstitutionServices } from './institution-services.js';
+import { SERVICE_CATALOGUE, SUBREQUEST_BUDGET, catalogueFingerprint, lookupInstitutionServices, servicesCacheParams } from './institution-services.js';
 import reportApi from './report-api.js';
 import { fakeIdToken } from '../src/test-support/firebaseIdToken.js';
 
@@ -331,9 +331,29 @@ test('the route caches a complete list for seven days under the normalized domai
   assert.equal(body.services.length, SUBREQUEST_BUDGET);
   assert.equal(body.unchecked, SERVICE_CATALOGUE.length - SUBREQUEST_BUDGET);
   assert.equal(servicePuts.length, 1);
-  // Without a GetFTR key the entityId reaches no provider, so it does not split the cache.
-  assert.deepEqual([...new URL(servicePuts[0].key).searchParams], [['domain', 'usal.es']]);
+  // Without a GetFTR key the entityId reaches no provider, so it does not
+  // split the cache; the catalogue's fingerprint does, so a changed
+  // catalogue is not served from a week-old list.
+  assert.deepEqual([...new URL(servicePuts[0].key).searchParams], [
+    ['domain', 'usal.es'],
+    ['catalogue', catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET)],
+  ]);
   assert.match(servicePuts[0].response.headers.get('cache-control'), /s-maxage=604800/);
+});
+
+test('the cache key changes with the catalogue and the budget, and with nothing else', () => {
+  const fingerprint = catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET);
+  assert.match(fingerprint, /^[0-9a-f]{8}$/);
+  assert.equal(catalogueFingerprint([...SERVICE_CATALOGUE], SUBREQUEST_BUDGET), fingerprint);
+  assert.notEqual(catalogueFingerprint(SERVICE_CATALOGUE.slice(0, 14), SUBREQUEST_BUDGET), fingerprint);
+  assert.notEqual(catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET + 30), fingerprint);
+  const swapped = SERVICE_CATALOGUE.map((entry, index) => (index === 0 ? { ...entry, doi: '10.1016/j.other.2021.1' } : entry));
+  assert.notEqual(catalogueFingerprint(swapped, SUBREQUEST_BUDGET), fingerprint);
+  assert.deepEqual(servicesCacheParams({ domain: 'usal.es', entityId: ENTITY_ID }, {}), { domain: 'usal.es', catalogue: fingerprint });
+  assert.deepEqual(
+    servicesCacheParams({ domain: 'usal.es', entityId: ENTITY_ID }, GETFTR_ENV),
+    { domain: 'usal.es', entityId: ENTITY_ID, catalogue: fingerprint },
+  );
 });
 
 test('the route caches a partial list for an hour', async () => {

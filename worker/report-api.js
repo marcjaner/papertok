@@ -55,7 +55,7 @@ import {
   readAccessQuery,
   readInstitutionQuery,
 } from './institution-access.js';
-import { INSTITUTION_SERVICES_PATH, lookupInstitutionServices } from './institution-services.js';
+import { INSTITUTION_SERVICES_PATH, lookupInstitutionServices, servicesCacheParams } from './institution-services.js';
 import {
   fetchPaperFigures,
   FIGURE_CACHE_SECONDS,
@@ -2679,7 +2679,7 @@ export default {
         const query = readInstitutionQuery(url.searchParams);
         const ttl = payload => (payload.partial ? SERVICES_PARTIAL_CACHE_SECONDS : ACCESS_CACHE_SECONDS);
         return await cacheResponse(request, origin, env, ttl, () => lookupInstitutionServices(query, { env }), {
-          canonicalParams: accessUpstreamParams(query, env),
+          canonicalParams: servicesCacheParams(query, env),
         });
       } catch (error) {
         const known = error instanceof InstitutionAccessError || error instanceof WorkerAuthError;

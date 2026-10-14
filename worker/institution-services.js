@@ -15,6 +15,7 @@ import {
   InstitutionAccessError,
   askGetFtrBatch,
   askResolver,
+  upstreamParams,
 } from './institution-access.js';
 
 export const INSTITUTION_SERVICES_PATH = '/institution/services';
@@ -121,6 +122,29 @@ export const SERVICE_CATALOGUE = Object.freeze([
   { id: 'brepols', packageHint: 'Brepols', name: 'Brepols Online', publisher: 'Brepols', url: 'https://www.brepolsonline.net', monogram: 'B', color: '#8B1E2B', issn: '0083-5897', year: 2021, doi: '10.1484/j.viator.5.130876' },
   { id: 'msp', packageHint: 'Mathematical Sciences Publishers', name: 'Mathematical Sciences Publishers', publisher: 'MSP', url: 'https://msp.org', monogram: 'MSP', color: '#2B4C7E', issn: '1465-3060', year: 2021, doi: '10.2140/gt.2021.25.2195' },
 ].map(entry => Object.freeze(entry)));
+
+/**
+ * A short fingerprint of what a list depends on besides the library: the
+ * catalogue entries and the budget. FNV-1a over the ids and DOIs, as hex.
+ */
+export function catalogueFingerprint(entries, budget) {
+  let hash = 0x811c9dc5;
+  for (const char of `${budget}|${entries.map(entry => `${entry.id}:${entry.doi}`).join(',')}`) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * The edge cache key's parameters for a services list: the upstream ones
+ * (`upstreamParams`) and the catalogue's fingerprint, so a platform added,
+ * changed or budgeted differently is not hidden behind a week-old list.
+ * Seen on 2026-10-14: the catalogue grew from 14 to 66 platforms and USAL
+ * kept seeing yesterday's 12 until the entry expired.
+ */
+export function servicesCacheParams(query, env) {
+  return { ...upstreamParams(query, env), catalogue: catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET) };
+}
 
 /** Whether a package name is the platform's or its publisher's own. */
 function namesPlatform(packageName, entry) {
