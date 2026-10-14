@@ -67,10 +67,11 @@ const DAY_7_MS = 7 * 24 * 60 * 60 * 1000;
 // under `/unknown` — a page that exists, is used, and is invisible in every
 // report. `/profile`, `/settings/profile`, `/settings/comments` and
 // `/admin/moderation` shipped missing and took a tenth of all page views with
-// them; `/report` is the legacy alias that redirects to `/research`, and it is
-// listed so those arrivals read as the old link they came from rather than as
-// noise. The test 'every route the app declares is a named analytics path'
-// is what keeps this list from drifting behind the router again.
+// them; `/research` (hidden for now) and its legacy alias `/report` both
+// redirect to `/feed`, and they stay listed so those arrivals read as the old
+// link they came from rather than as noise. The test 'every route the app
+// declares is a named analytics path' is what keeps this list from drifting
+// behind the router again.
 const STATIC_ANALYTICS_PATHS = new Set([
   // The landing, and the only entry here that is not a route of this app at
   // all: `/` is served by index.html, which loads no analytics. It stays
