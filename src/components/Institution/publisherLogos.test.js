@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { SERVICE_CATALOGUE } from '../../../worker/institution-services.js';
 
 // The module imports SVGs through Vite, so node reads its source instead.
 const source = readFileSync(new URL('./publisherLogos.js', import.meta.url), 'utf8');
@@ -14,6 +15,14 @@ test('every mapped logo is a bundled file named after its platform id', () => {
     assert.equal(name, file);
     assert.ok(existsSync(new URL(`${file}.svg`, assetsDir)), `${file}.svg is missing`);
   }
+});
+
+// A reader only ever sees platforms from the Worker's catalogue, whichever
+// provider answers for their library, so a platform added there without a
+// logo would be the one row drawn as a bare monogram.
+test('every platform in the Worker catalogue has a bundled logo', () => {
+  const mapped = new Set(imports.map(([, name]) => name));
+  for (const { id } of SERVICE_CATALOGUE) assert.ok(mapped.has(id), `${id} has no logo`);
 });
 
 test('every bundled logo has a provenance row in the README', () => {
