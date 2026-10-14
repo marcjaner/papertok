@@ -1,7 +1,7 @@
 /**
  * Which way the navbar's tabs sit relative to each other.
  *
- * The three tabs are siblings: none is inside another, so a switch between them
+ * The tabs are siblings: none is inside another, so a switch between them
  * is a step sideways, not a descent. History cannot tell us which way — every
  * tab press is a push, so `directionForHistoryIndex` returns 1 going to
  * Following AND 1 coming back from it. Measured on the tab bar before this:
@@ -14,7 +14,7 @@
  */
 
 /** In the order `Navbar.jsx` renders them. */
-export const TAB_ORDER = ['/feed', '/research', '/following'];
+export const TAB_ORDER = ['/feed', '/following'];
 
 /**
  * The last tab we were on, module scope for the same reason `routeDirection`'s
