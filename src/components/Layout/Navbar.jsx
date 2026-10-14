@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { ruleTransform } from '../../utils/navRule.js';
 import { useAuth } from '../../context/AuthContext';
 import { useFeed } from '../../context/FeedContext';
-import { MagnifyingGlass, Newspaper, Stack, UserCheck } from '@phosphor-icons/react';
+import { MagnifyingGlass, Stack, UserCheck } from '@phosphor-icons/react';
 import AccountMenu from './AccountMenu.jsx';
 import { shouldOpenSearchOnSlash } from './searchShortcut.js';
 import './Navbar.css';
@@ -95,7 +95,6 @@ export default function Navbar({ onOpenSearch = () => {}, searchOpen = false }) 
   }, [onOpenSearch]);
 
   const isFollowingActive = pathname === '/following';
-  const isResearchActive = pathname === '/research' || pathname === '/report';
   const isHomeActive = pathname === '/feed';
   // Which tab is current is the pathname, and nothing else. This used to also
   // require `feedMode === 'top'`, from a time when this feed had more than one
@@ -110,7 +109,7 @@ export default function Navbar({ onOpenSearch = () => {}, searchOpen = false }) 
   // mode is ever added, this line and that `aria-current` have to be revisited
   // together: a `className` callback suppresses the appended class, but nothing
   // in NavLink's plain API gates `aria-current`.
-  const activeTab = isHomeActive ? 'home' : isResearchActive ? 'research' : isFollowingActive ? 'following' : '';
+  const activeTab = isHomeActive ? 'home' : isFollowingActive ? 'following' : '';
   const linksRef = useRef(null);
   /**
    * The press is remembered only to decide, on `pointerup`, whether the finger
@@ -222,7 +221,7 @@ export default function Navbar({ onOpenSearch = () => {}, searchOpen = false }) 
             aria-hidden="true"
             style={{ transform: rule.transform || undefined, opacity: rule.transform ? 1 : 0 }}
           />
-          {/* A NavLink like its two siblings, not a <button> that calls
+          {/* A NavLink like Following, not a <button> that calls
               navigate('/feed'). On the phone (2026-09-05) the tap from Following
               to here needed several tries while the other way took one, and
               the element was the only asymmetry in the bar: an anchor still
@@ -251,19 +250,6 @@ export default function Navbar({ onOpenSearch = () => {}, searchOpen = false }) 
           >
             <Stack size={15} aria-hidden="true" />
             {'For you'}
-          </NavLink>
-
-          <NavLink
-            to="/research"
-            data-tab="research"
-            className={`navbar-link ${isResearchActive ? 'active' : ''}`}
-            onClick={swallowSynthesisedClick}
-            onPointerDown={(event) => pressTab(event, 'research')}
-            onPointerUp={(event) => liftTab(event, 'research', '/research')}
-            onPointerCancel={releasePress}
-          >
-            <Newspaper size={15} aria-hidden="true" />
-            Research
           </NavLink>
 
           <NavLink
