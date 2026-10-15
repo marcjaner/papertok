@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 const VERCEL = new URL('../../vercel.json', import.meta.url);
 const MAIN = new URL('../main.jsx', import.meta.url);
 const FIREBASE = new URL('../services/firebase.js', import.meta.url);
+const ANALYTICS = new URL('../services/analyticsService.js', import.meta.url);
 
 test('the SPA rewrite never answers a missing chunk with the app document', async () => {
   const config = JSON.parse(await readFile(VERCEL, 'utf8'));
@@ -22,7 +23,7 @@ test('the SPA rewrite never answers a missing chunk with the app document', asyn
   const matches = value => new RegExp(`^${pattern}$`).test(value);
   assert.ok(matches('lists'));
   assert.ok(matches('public/paper/10.1234%2Fabc'));
-  assert.ok(!matches('_vercel/insights/script.js'));
+  assert.ok(!matches('ingest/e/'));
   // A tab that outlives a deploy asks for a chunk by its old hash. That has to
   // be a 404 Vite can report, not HTML served as JavaScript with a 200.
   assert.ok(!matches('assets/index-DToPZZZM.js'));
@@ -63,6 +64,23 @@ test('sign-in redirects to our own domain, and its handler reaches Firebase', as
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
   const authDomain = code.match(/authDomain:\s*['"]([^'"]+)['"]/)?.[1];
   assert.equal(authDomain, 'papertok.app');
+});
+
+test('analytics leaves through our own domain and reaches PostHog\'s EU host', async () => {
+  const config = JSON.parse(await readFile(VERCEL, 'utf8'));
+  const code = (await readFile(ANALYTICS, 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const apiHost = code.match(/api_host:\s*['"]([^'"]+)['"]/)?.[1];
+  assert.ok(apiHost?.startsWith('/'), `analytics must be sent to our own origin, not ${apiHost}`);
+
+  // Renaming either side alone sends every event to a 404, and nothing in the
+  // app would notice: PostHog's requests fail silently.
+  const proxy = config.rewrites.find(rule => rule.source === `${apiHost}/:path(.*)`);
+  assert.ok(proxy, `no rewrite forwards ${apiHost}/* to PostHog`);
+  assert.equal(proxy.destination, 'https://eu.i.posthog.com/:path');
+  const spa = config.rewrites.findIndex(rule => rule.source.startsWith('/:path('));
+  assert.ok(config.rewrites.indexOf(proxy) < spa, 'the proxy must come before the SPA rewrite');
 });
 
 test('SOURCE: a failed chunk load reloads the tab once a minute at most', async () => {

@@ -71,6 +71,8 @@ test('the summary up top says the five things a reader needs', () => {
   assert.match(block, /cookies/);
   assert.match(block, /sold/);
   assert.match(block, /Settings/);
+  // Settings needs an account; a visitor is told where their switch is.
+  assert.match(block, /Privacy button/);
   assert.match(block, /mailto:nicomg60@gmail\.com/);
 });
 

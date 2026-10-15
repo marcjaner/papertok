@@ -132,6 +132,10 @@ The frontend is deployed through **Vercel** (Git-connected: a push to `main` is 
 deploy, any other branch or PR gets a preview URL). DNS for `papertok.app` is managed in
 Cloudflare.
 
+Usage analytics go to **PostHog**'s EU cloud in cookieless mode, through the `/ingest`
+rewrite in `vercel.json`, and only from the production site. What is sent, and what never
+is, lives in `src/services/analyticsService.js`.
+
 A **Cloudflare Worker** is used for server-side functionality such as caching scientific queries, protecting provider credentials and proxying APIs that should not be called directly from the browser. It also serves the AI features — plain-words rewriting and passage explanations — behind a server-enforced daily allowance that reserves usage before the model runs and refunds it on failure.
 
 This keeps the main application lightweight while allowing integrations that require server-side secrets.
@@ -183,7 +187,7 @@ papertok/
 ├── worker/                 Cloudflare Worker, AI and notifications
 ├── public/                 Static assets
 ├── scripts/diagnostics/    Manual provider and proxy probes
-└── vercel.json             Vercel build, SPA fallback, auth proxy and cache headers
+└── vercel.json             Vercel build, SPA fallback, auth and analytics proxies, cache headers
 ```
 
 ## Documentation

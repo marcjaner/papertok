@@ -66,7 +66,8 @@ been loaded when the session started at the root. Worker configuration also foll
   namespacing storage. Guest onboarding choices are a temporary bridge: clear them when
   adopted or when an existing onboarded profile loads, so they cannot seed another account.
 - Provider credentials belong in Cloudflare secrets, never frontend code or `VITE_*`.
-  Firebase web configuration is deliberately public; it does not grant authorization.
+  Firebase web configuration and the PostHog project token are deliberately public;
+  neither grants authorization.
   Verify Firebase identity for protected user-specific operations and enforce ownership
   in Firestore rules or the Worker, not just by hiding UI.
 - Personal responses must not share global cache keys. Canonicalize keys from the parameters
