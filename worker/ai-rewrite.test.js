@@ -133,6 +133,17 @@ test('repairs LaTeX backslashes the model failed to escape', () => {
   assert.equal(section.paragraphs[0], 'The value $\\omega_b$ is fixed.');
 });
 
+// `\theta` opens with `\t`, which JSON.parse would read as a tab; the `\n`
+// outside math is a real escape and has to stay a newline.
+test('repairs raw LaTeX backslashes without corrupting valid JSON escapes', () => {
+  const section = parseRewriteSectionLine(
+    String.raw`{"paragraphs":["Uses $X_\theta = \omega_b$ and \mathrm{Re}(A).","Line one\nLine two"]}`,
+    0,
+  );
+  assert.equal(section.paragraphs[0], String.raw`Uses $X_\theta = \omega_b$ and \mathrm{Re}(A).`);
+  assert.equal(section.paragraphs[1], 'Line one\nLine two');
+});
+
 test('a malformed line costs one section, not the whole rewrite', () => {
   const assembler = createSectionAssembler();
   const sections = assembler.push([

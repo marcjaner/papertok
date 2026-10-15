@@ -4,9 +4,6 @@ import {
   AIExplanationError,
   checkAIProviderHealth,
   fetchPaperPdfBytes,
-  handleAIExplanation,
-  isDeepseekConfigured,
-  isKimiConfigured,
   peekAIQuota,
   verifyFirebaseAccount,
 } from './ai-explanation.js';
@@ -68,11 +65,12 @@ import {
 } from './thread-anchor.js';
 import { isServiceAccountConfigured } from './firestore-admin.js';
 import { releaseRequestQuota, reserveRequestQuota } from './request-quota-ledger.js';
-import { handlePaperHooks } from './ai-hooks.js';
 import { awaitUpstreamSlot, PACE_RETRY_AFTER_SECONDS, paceRetryAfterSeconds } from './upstream-pace.js';
 import { createFirestoreRest } from '../src/utils/firestoreRest.js';
 import { createShareLoader, createShellLoader, handleSharePage } from './share-pages.js';
 
+// Unbound and unused. Kept only so that a later, separate change can delete the
+// class with a `deleted_classes` migration.
 export { KimiBudgetLedger } from './kimi-budget-ledger.js';
 export { EmailDeliveryLedger } from './email-delivery-ledger.js';
 export { RequestQuotaLedger } from './request-quota-ledger.js';
@@ -2710,47 +2708,7 @@ export default {
         });
       }
     }
-    // The feed's "why it matters" line. Open to guests, with its own allowance:
-    // see worker/ai-hooks.js. A failure is an empty answer, never an error.
-    if (url.pathname === '/ai/hooks') {
-      if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, corsHeaders(origin, env));
-      if (origin && !allowedOrigins(env).has(origin)) return json({ error: 'Origin not allowed' }, 403);
-      try {
-        const payload = await handlePaperHooks(request, env);
-        return json(payload, 200, {
-          ...corsHeaders(origin, env),
-          'cache-control': 'private, no-store',
-        });
-      } catch (error) {
-        const knownError = error instanceof AIExplanationError;
-        return json({ code: knownError ? error.code : 'AI_UNAVAILABLE' }, knownError ? error.status : 502, {
-          ...corsHeaders(origin, env),
-          'cache-control': 'no-store',
-        });
-      }
-    }
-    if (url.pathname === '/ai/explain') {
-      if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, corsHeaders(origin, env));
-      if (origin && !allowedOrigins(env).has(origin)) return json({ error: 'Origin not allowed' }, 403);
-      try {
-        const payload = await handleAIExplanation(request, env);
-        return json(payload, 200, {
-          ...corsHeaders(origin, env),
-          'cache-control': 'private, no-store',
-        });
-      } catch (error) {
-        const knownError = error instanceof AIExplanationError;
-        return json(
-          {
-            code: knownError ? error.code : 'AI_UNAVAILABLE',
-            ...(knownError && error.quota ? { quota: error.quota } : {}),
-          },
-          knownError ? error.status : 502,
-          { ...corsHeaders(origin, env), 'cache-control': 'no-store' },
-        );
-      }
-    }
-    // One passage, explained in place. Same daily allowance as the other two —
+    // One passage, explained in place. Same daily allowance as /ai/rewrite —
     // it is the same model doing the same kind of work, just less of it — so it
     // is deliberately NOT free: a route that spends nothing is a route with no
     // ceiling.
@@ -2802,9 +2760,7 @@ export default {
     if (url.pathname === '/health') {
       return json({
         ok: true,
-        aiConfigured: Boolean(
-          env.GEMINI_API_KEY || isNanConfigured(env) || isDeepseekConfigured(env) || isKimiConfigured(env),
-        ),
+        aiConfigured: Boolean(env.GEMINI_API_KEY || isNanConfigured(env)),
         openAlexConfigured: Boolean(env.OPENALEX_API_KEY),
         adsConfigured: Boolean(env.NASA_ADS_API_TOKEN),
         scopusConfigured: isScopusEgressConfigured(env),

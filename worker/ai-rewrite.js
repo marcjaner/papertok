@@ -1,10 +1,9 @@
 /**
  * Paper rewrite — the same paper, in plainer words, at the reader's level.
  *
- * This is deliberately not the explainer in `ai-explanation.js`. That endpoint
- * describes a paper from the outside ("this work studies X"); this one rewrites
- * the document itself, keeping its own section structure, so the reader gets
- * the paper rather than a summary of it.
+ * It rewrites the document itself rather than describing it from the outside
+ * ("this work studies X"), keeping the paper's own section structure, so the
+ * reader gets the paper rather than a summary of it.
  *
  * Two consequences drive the whole design:
  *
