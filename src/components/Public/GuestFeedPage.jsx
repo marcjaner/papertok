@@ -14,6 +14,7 @@ import ThemeToggle from '../Layout/ThemeToggle.jsx';
 import GuestEndCard from './GuestEndCard.jsx';
 import GuestInterestsPrompt from './GuestInterestsPrompt.jsx';
 import GuestWelcome from './GuestWelcome.jsx';
+import PrivacyPopover from './PrivacyPopover.jsx';
 import './GuestFeedPage.css';
 
 const NO_AREAS = Object.freeze([]);
@@ -124,8 +125,10 @@ export default function GuestFeedPage({
           <div className="guest-header-actions">
             {/* A visitor gets the system's answer by default and can still
                 overrule it here: the bar that carries this control for a session
-                is not rendered for them. */}
+                is not rendered for them. Nor are Settings, so their analytics
+                switch and the way to the policy sit here too. */}
             <ThemeToggle className="guest-header-button" />
+            <PrivacyPopover className="guest-header-button" />
             <button
               type="button"
               className={`guest-interests-button ${areas.length > 0 ? 'is-set' : ''}`}

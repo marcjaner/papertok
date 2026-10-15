@@ -216,10 +216,10 @@ function persistAnalyticsConsentCookie(value) {
 
 // Granted unless the reader has said otherwise. Nobody is asked any more
 // (2026-09-17): the analytics transport sets no cookies and identifies nobody
-// (PostHog runs cookieless, see POSTHOG_OPTIONS), and the switch in Settings is
-// the way out. The default is never written down -- a stored "granted" means
-// somebody chose it, a stored "denied" is respected, and an empty store IS the
-// default.
+// (PostHog runs cookieless, see POSTHOG_OPTIONS), and the switch in Settings, or
+// a visitor's Privacy button (PrivacyPopover), is the way out. The default is
+// never written down -- a stored "granted" means somebody chose it, a stored
+// "denied" is respected, and an empty store IS the default.
 export function readAnalyticsConsent(storage) {
   const targetStorage = storage === undefined ? getBrowserStorage() : storage;
   try {
