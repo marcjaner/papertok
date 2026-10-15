@@ -54,8 +54,11 @@ test('the switch reads and writes the one stored choice through the analytics co
   assert.doesNotMatch(popover, /<Switch[^>]*aria-label/);
 });
 
-test('a choice the browser refused to store is said, not just left unswitched', async () => {
+test('a choice the browser refused to store is said, every time, not just left unswitched', async () => {
   const popover = await read('./PrivacyPopover.jsx');
+  // The live region holds only the failure, and is emptied before each try:
+  // it speaks when its text changes, so a second refusal must change it too.
+  assert.match(popover, /setSaveFailed\(false\);\s*const saved = await updateConsent\(/);
   assert.match(popover, /setSaveFailed\(!saved\)/);
-  assert.match(popover, /<p role="status"[^>]*>\s*\{saveFailed \? COPY\.saveFailed : COPY\.kept\}/);
+  assert.match(popover, /<span role="status">\{saveFailed \? COPY\.saveFailed : ''\}<\/span>/);
 });

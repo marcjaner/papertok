@@ -1,6 +1,6 @@
 /* The guest's privacy panel. Unlayered on purpose: these rules have to beat
-   the popover primitive's width and padding utilities (design.md, traps). The
-   popup is portaled to <body>, so nothing here is rooted in a page container. */
+   the popover primitive's width utility (design.md, traps). The popup is
+   portaled to <body>, so nothing here is rooted in a page container. */
 .privacy-popover {
   display: grid;
   /* One column that never grows past the popup: a line that cannot wrap

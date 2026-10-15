@@ -39,7 +39,10 @@ export default function PrivacyPopover({ className = '' }) {
 
   // `updateConsent` only moves the switch when the choice was stored, so a
   // browser that refuses storage leaves it where it was; say so in words.
+  // Cleared first: a live region speaks only when its text changes, so a
+  // second refusal would otherwise go unheard.
   const choose = async checked => {
+    setSaveFailed(false);
     const saved = await updateConsent(checked ? ANALYTICS_CONSENT.GRANTED : ANALYTICS_CONSENT.DENIED);
     setSaveFailed(!saved);
   };
@@ -62,8 +65,10 @@ export default function PrivacyPopover({ className = '' }) {
           {COPY.toggle}
           <Switch checked={consent === ANALYTICS_CONSENT.GRANTED} onCheckedChange={choose} />
         </Label>
-        <p role="status" className={`privacy-popover-status${saveFailed ? ' is-failed' : ''}`}>
-          {saveFailed ? COPY.saveFailed : COPY.kept}
+        {/* Only the failure is announced; the note beside it is not news. */}
+        <p className={`privacy-popover-status${saveFailed ? ' is-failed' : ''}`}>
+          {saveFailed ? null : COPY.kept}
+          <span role="status">{saveFailed ? COPY.saveFailed : ''}</span>
         </p>
         {/* A link that looks like a ghost button, not a Button rendered as a
             link: Base UI gives a non-button element `role="button"`, and this
