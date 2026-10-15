@@ -104,13 +104,16 @@
    it can hold. An `em` media query follows the browser's font size, not the
    page's, so at the default size this never applies down to a 288px screen.
    Then Sign in folds to its icon, as the feed header's does, and keeps the
-   label as its name; the icon buttons beside it keep their size. */
+   label as its name; the icon buttons beside it keep their size. It stays
+   folded under keyboard focus too, unlike the feed's: here the label is
+   folded precisely because it does not fit, so unfolding it on focus would
+   push it off the screen. */
 @media (max-width: 18em) {
   .gw-bar {
     gap: var(--space-2);
   }
 
-  .gw-sign-in:not(:focus-visible) {
+  .gw-sign-in {
     gap: 0;
     font-size: 0;
     padding: 0;
