@@ -23,6 +23,16 @@ as `VITE_*` values.
 npm run check
 ```
 
+The check also runs on Windows, in PowerShell or cmd. `.gitattributes` checks every text file
+out with LF, which some source tests expect. A clone made before that file existed keeps its
+CRLF files until it is refreshed once. `git reset --hard` discards uncommitted changes, so
+commit or stash them first:
+
+```bash
+git rm -r --cached -q .
+git reset --hard
+```
+
 Also verify the affected workflow manually when the change involves navigation, animations,
 loading states, authentication, or responsive layout.
 

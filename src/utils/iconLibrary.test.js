@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const SRC = new URL('../', import.meta.url);
+const SRC = fileURLToPath(new URL('../', import.meta.url));
 
 async function sourceFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -21,9 +22,9 @@ async function sourceFiles(dir) {
  */
 test('no component imports icons from lucide-react', async () => {
   const offenders = [];
-  for (const file of await sourceFiles(SRC.pathname)) {
+  for (const file of await sourceFiles(SRC)) {
     const source = await readFile(file, 'utf8');
-    if (/from ['"]lucide-react['"]/.test(source)) offenders.push(path.relative(SRC.pathname, file));
+    if (/from ['"]lucide-react['"]/.test(source)) offenders.push(path.relative(SRC, file));
   }
   assert.deepEqual(offenders, []);
 });

@@ -129,7 +129,8 @@ test('the rail slides on valid transitions, and no stylesheet gives a duration t
   assert.match(css, /prefers-reduced-motion: reduce\) \{\s*\.rd-rail\[data-surface='sheet'\],\s*\.rd-rail\[data-surface='rail'\],/);
   const { readdirSync, statSync } = await import('node:fs');
   const { join } = await import('node:path');
-  const root = new URL('../../', import.meta.url).pathname;
+  const { fileURLToPath } = await import('node:url');
+  const root = fileURLToPath(new URL('../../', import.meta.url));
   const walk = (dir) => readdirSync(dir).flatMap((name) => { const full = join(dir, name); return statSync(full).isDirectory() ? walk(full) : full.endsWith('.css') ? [full] : []; });
   for (const file of walk(root)) {
     const source = stripComments(await readFile(file, 'utf8'));
