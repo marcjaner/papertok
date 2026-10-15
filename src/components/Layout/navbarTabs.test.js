@@ -14,8 +14,8 @@ const stripCssComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '');
  * element: Research and Following were NavLinks — an <a href> — and For you
  * was a <button> calling navigate(). When React's click does not run, an
  * anchor still navigates: the browser follows the href. A button does
- * nothing. The three tabs are the same element now, so the fallback is the
- * same for all of them.
+ * nothing. The tabs are the same element now, so the fallback is the same
+ * for all of them. Research has since been hidden from the bar.
  *
  * What the fallback COSTS changed when the routes left the fragment: the href
  * was `#/…` then, so following it was a same-document hop that fired
@@ -31,13 +31,13 @@ function linksRow(jsx) {
   return jsx.slice(start, end);
 }
 
-test('SOURCE: the three tabs are NavLinks, For you included, so a lost click still navigates through the href', async () => {
+test('SOURCE: the two tabs are NavLinks, For you included, so a lost click still navigates through the href', async () => {
   const row = linksRow(stripJsComments(await read('./Navbar.jsx')));
   const navLinks = row.match(/<NavLink\b/g) || [];
-  assert.equal(navLinks.length, 3, 'exactly three NavLinks in the links row');
+  assert.equal(navLinks.length, 2, 'exactly two NavLinks in the links row');
   assert.match(row, /<NavLink\s+to="\/feed"\s+end\b/, 'For you must be a NavLink to "/feed" with `end`');
-  assert.match(row, /<NavLink\s+to="\/research"/, 'Research stays a NavLink');
   assert.match(row, /<NavLink\s+to="\/following"/, 'Following stays a NavLink');
+  assert.doesNotMatch(row, /\/research/, 'Research is hidden from the bar');
   assert.doesNotMatch(row, /<button\b/, 'no <button> in the links row: a button has no href to fall back on');
   assert.doesNotMatch(row, /navigate\(/, 'the tabs must not navigate by hand: the NavLink does, and the href is the fallback');
 });
@@ -118,11 +118,11 @@ test('SOURCE: on a touch screen each tab is hit across the whole bar, not only i
 test('SOURCE: the mark is measured once per tab change, from the tab the router made current', async () => {
   const jsx = stripJsComments(await read('./Navbar.jsx'));
   const row = linksRow(jsx);
-  for (const tab of ['home', 'research', 'following']) {
+  for (const tab of ['home', 'following']) {
     assert.match(row, new RegExp(`data-tab="${tab}"`), `${tab} carries its data-tab`);
     assert.match(row, new RegExp(`onPointerDown=\\{\\(event\\) => pressTab\\(event, '${tab}'\\)\\}`), `${tab} records the press`);
   }
-  assert.equal((row.match(/onPointerCancel=\{releasePress\}/g) || []).length, 3, 'a cancelled press is released on all three');
+  assert.equal((row.match(/onPointerCancel=\{releasePress\}/g) || []).length, 2, 'a cancelled press is released on both');
   // The hook measures the tab it is told, by data-tab.
   assert.match(jsx, /row\.querySelector\(`\.navbar-link\[data-tab="\$\{tab\}"\]`\)/);
   assert.doesNotMatch(jsx, /querySelector\('\.navbar-link\.active'\)/);
@@ -149,10 +149,10 @@ test('SOURCE: the mark is measured once per tab change, from the tab the router 
 test('SOURCE: a finger that lifts on the tab it pressed navigates without waiting for the click', async () => {
   const jsx = stripJsComments(await read('./Navbar.jsx'));
   const row = linksRow(jsx);
-  for (const [tab, to] of [['home', '/feed'], ['research', '/research'], ['following', '/following']]) {
+  for (const [tab, to] of [['home', '/feed'], ['following', '/following']]) {
     assert.match(row, new RegExp(`onPointerUp=\\{\\(event\\) => liftTab\\(event, '${tab}', '${to}'\\)\\}`), `${tab} navigates on pointerup`);
   }
-  assert.equal((row.match(/swallowSynthesisedClick/g) || []).length, 3, 'all three swallow the click that may follow');
+  assert.equal((row.match(/swallowSynthesisedClick/g) || []).length, 2, 'both swallow the click that may follow');
   // Touch only: a mouse keeps the anchor's click, so desktop is untouched.
   assert.match(jsx, /if \(event\.pointerType !== 'touch' \|\| !start \|\| start\.tab !== tab\) return;/);
   // A drag that starts on the bar is not a navigation.

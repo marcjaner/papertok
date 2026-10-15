@@ -20,6 +20,16 @@ function PopoverClose(props) {
   return <PopoverPrimitive.Close data-slot="popover-close" {...props} />;
 }
 
+/** The popup's name (an `<h2>`); Base UI points `aria-labelledby` at it. */
+function PopoverTitle(props) {
+  return <PopoverPrimitive.Title data-slot="popover-title" {...props} />;
+}
+
+/** Read out with the name when the popup opens, through `aria-describedby`. */
+function PopoverDescription(props) {
+  return <PopoverPrimitive.Description data-slot="popover-description" {...props} />;
+}
+
 function PopoverContent({
   className,
   align = 'center',
@@ -68,5 +78,7 @@ export {
   Popover,
   PopoverClose,
   PopoverContent,
+  PopoverDescription,
+  PopoverTitle,
   PopoverTrigger,
 };

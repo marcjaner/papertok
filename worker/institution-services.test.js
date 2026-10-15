@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { InstitutionAccessError } from './institution-access.js';
-import { SERVICE_CATALOGUE, lookupInstitutionServices } from './institution-services.js';
+import { GETFTR_BATCH_SIZE, InstitutionAccessError } from './institution-access.js';
+import { SERVICE_CATALOGUE, SUBREQUEST_BUDGET, catalogueFingerprint, lookupInstitutionServices, servicesCacheParams } from './institution-services.js';
 import reportApi from './index.js';
 import { fakeIdToken } from '../src/test-support/firebaseIdToken.js';
 
@@ -63,7 +63,13 @@ const xml = body => new Response(body, { status: 200, headers: { 'content-type':
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const timeout = () => Promise.reject(new DOMException('The operation timed out.', 'TimeoutError'));
 
-/** The resolver and GetFTR answering per journal or DOI, with overlapping calls counted. */
+/** A GetFTR response answering each DOI of a request through `verdict(doi)`. */
+const getftrAnswering = verdict => dois => jsonResponse({ entitlements: dois.map(doi => ({ doi, ...verdict(doi) })) });
+
+/**
+ * The resolver answering per journal and GetFTR per request (its `dois`
+ * array), with overlapping calls counted.
+ */
 function upstreams({ resolver = () => xml(CTO_NONE), getftr = () => jsonResponse({ entitlements: [] }) } = {}) {
   const calls = [];
   let inFlight = 0;
@@ -76,7 +82,11 @@ function upstreams({ resolver = () => xml(CTO_NONE), getftr = () => jsonResponse
     try {
       await new Promise(resolve => setTimeout(resolve, 1));
       if (target.host === 'eu01.alma.exlibrisgroup.com') return await resolver(target.searchParams.get('rft.issn'), target);
-      if (target.host === 'entitlements.prod.getft.io') return await getftr(JSON.parse(init.body).dois[0], init);
+      if (target.host === 'entitlements.prod.getft.io') {
+        const { dois } = JSON.parse(init.body);
+        const answer = await getftr(dois, init);
+        return answer;
+      }
       throw new Error(`unexpected fetch ${target}`);
     } finally {
       inFlight -= 1;
@@ -103,10 +113,10 @@ test('lists the subscribed platforms in catalogue order with their collections',
       { id: 'cambridge', name: 'Cambridge Core', publisher: 'Cambridge University Press', url: 'https://www.cambridge.org/core', monogram: 'CUP', color: '#D62E2E', collection: 'Earth, Atmospheric & Aquatic Science Collection', ownPlatform: false },
     ],
     partial: false,
-    unchecked: 0,
+    unchecked: SERVICE_CATALOGUE.length - SUBREQUEST_BUDGET,
     checkedAt: '2026-10-13T12:00:00.000Z',
   });
-  assert.equal(stub.calls.length, SERVICE_CATALOGUE.length);
+  assert.equal(stub.calls.length, SUBREQUEST_BUDGET);
   const wiley = stub.calls.find(call => call.url.searchParams.get('rft.issn') === '1521-4095');
   assert.equal(wiley.url.pathname, '/view/uresolver/34BUC_USAL/openurl');
   assert.equal(wiley.url.searchParams.get('svc_dat'), 'CTO');
@@ -159,17 +169,17 @@ test('refuses an institution no provider can answer for, without asking anyone',
   }
 });
 
-test('GetFTR answers per platform with the catalogue DOI, and its yes carries no collection', async () => {
+// With a key, the catalogue goes to GetFTR twenty DOIs per request.
+const GETFTR_BATCHES = Math.ceil(SERVICE_CATALOGUE.length / GETFTR_BATCH_SIZE);
+
+test('GetFTR is asked about the whole catalogue in batches of twenty DOIs, and its yes carries no collection', async () => {
   const nature = SERVICE_CATALOGUE.find(entry => entry.id === 'nature');
   const stub = upstreams({
-    getftr: doi => jsonResponse({
-      entitlements: [{
-        doi,
-        statusCode: 200,
-        entitled: doi === nature.doi ? 'yes' : 'no',
-        vor: [{ contentType: 'html', url: `https://www.nature.com/articles/${doi}` }],
-      }],
-    }),
+    getftr: getftrAnswering(doi => ({
+      statusCode: 200,
+      entitled: doi === nature.doi ? 'yes' : 'no',
+      vor: [{ contentType: 'html', url: `https://www.nature.com/articles/${doi}` }],
+    })),
   });
   const result = await lookupInstitutionServices({ domain: 'uam.es', entityId: ENTITY_ID }, { fetchImpl: stub.fetchImpl, env: GETFTR_ENV });
   assert.deepEqual(result.services, [
@@ -177,10 +187,14 @@ test('GetFTR answers per platform with the catalogue DOI, and its yes carries no
   ]);
   assert.equal(result.partial, false);
   assert.equal(result.unchecked, 0);
-  assert.deepEqual(
-    stub.calls.map(call => JSON.parse(call.init.body)).sort((a, b) => a.dois[0].localeCompare(b.dois[0])),
-    SERVICE_CATALOGUE.map(entry => ({ org: { entityID: ENTITY_ID }, dois: [entry.doi] })).sort((a, b) => a.dois[0].localeCompare(b.dois[0])),
-  );
+  const bodies = stub.calls.map(call => JSON.parse(call.init.body));
+  assert.equal(bodies.length, GETFTR_BATCHES);
+  assert.ok(bodies.length < SUBREQUEST_BUDGET);
+  for (const body of bodies) {
+    assert.deepEqual(body.org, { entityID: ENTITY_ID });
+    assert.ok(body.dois.length > 0 && body.dois.length <= GETFTR_BATCH_SIZE);
+  }
+  assert.deepEqual(bodies.flatMap(body => body.dois), SERVICE_CATALOGUE.map(entry => entry.doi));
 });
 
 test('a GetFTR outage falls through to the resolver when the library has one', async () => {
@@ -191,7 +205,10 @@ test('a GetFTR outage falls through to the resolver when the library has one', a
   const result = await lookupInstitutionServices({ domain: 'usal.es', entityId: ENTITY_ID }, { fetchImpl: stub.fetchImpl, env: GETFTR_ENV });
   assert.deepEqual(result.services.map(service => [service.id, service.collection, service.ownPlatform]), [['rsc', 'Royal Society of Chemistry', true]]);
   assert.equal(result.partial, false);
-  assert.equal(result.unchecked, 0);
+  // The failed GetFTR requests still count against the budget.
+  const resolverCalls = stub.calls.filter(call => call.url.host === 'eu01.alma.exlibrisgroup.com');
+  assert.equal(resolverCalls.length, SUBREQUEST_BUDGET - GETFTR_BATCHES);
+  assert.equal(result.unchecked, SERVICE_CATALOGUE.length - resolverCalls.length);
 });
 
 test('a GetFTR answer that decides nothing, with no resolver behind it, is unchecked rather than absent', async () => {
@@ -202,7 +219,7 @@ test('a GetFTR answer that decides nothing, with no resolver behind it, is unche
     [SERVICE_CATALOGUE[3].doi]: { statusCode: 200, entitled: 'yes' },
   };
   const stub = upstreams({
-    getftr: doi => jsonResponse({ entitlements: [{ doi, ...(undecided[doi] || { statusCode: 200, entitled: 'no' }) }] }),
+    getftr: getftrAnswering(doi => undecided[doi] || { statusCode: 200, entitled: 'no' }),
   });
   const result = await lookupInstitutionServices({ domain: 'uam.es', rorId: 'https://ror.org/02f40zc51' }, { fetchImpl: stub.fetchImpl, env: GETFTR_ENV });
   assert.deepEqual(result.services, []);
@@ -212,12 +229,23 @@ test('a GetFTR answer that decides nothing, with no resolver behind it, is unche
 
 test('a GetFTR maybe goes to the resolver when the library has one, which decides it', async () => {
   const stub = upstreams({
-    getftr: doi => jsonResponse({ entitlements: [{ doi, statusCode: 200, entitled: 'maybe' }] }),
+    getftr: getftrAnswering(() => ({ statusCode: 200, entitled: 'maybe' })),
     resolver: issn => xml(issn === ISSN_OF.wiley ? CTO_WILEY : CTO_NONE),
   });
   const result = await lookupInstitutionServices({ domain: 'usal.es', entityId: ENTITY_ID }, { fetchImpl: stub.fetchImpl, env: GETFTR_ENV });
   assert.deepEqual(result.services.map(service => service.id), ['wiley']);
+  assert.equal(result.unchecked, SERVICE_CATALOGUE.length - (SUBREQUEST_BUDGET - GETFTR_BATCHES));
+});
+
+test('a GetFTR yes or no is final: the resolver is not asked about it', async () => {
+  const stub = upstreams({
+    getftr: getftrAnswering(() => ({ statusCode: 200, entitled: 'no' })),
+    resolver: () => xml(CTO_WILEY),
+  });
+  const result = await lookupInstitutionServices({ domain: 'usal.es', entityId: ENTITY_ID }, { fetchImpl: stub.fetchImpl, env: GETFTR_ENV });
+  assert.deepEqual(result.services, []);
   assert.equal(result.unchecked, 0);
+  assert.equal(stub.calls.length, GETFTR_BATCHES);
 });
 
 test('a GetFTR outage with no resolver behind it is a failure, not an empty library', async () => {
@@ -228,11 +256,19 @@ test('a GetFTR outage with no resolver behind it is a failure, not an empty libr
   );
 });
 
-test('never has more than four probes in flight', async () => {
+test('without GetFTR the resolver is asked the budget\'s worth of platforms, four at a time, and the rest are unchecked', async () => {
   const stub = upstreams();
-  await lookupInstitutionServices({ domain: 'usal.es' }, { fetchImpl: stub.fetchImpl });
-  assert.equal(stub.calls.length, SERVICE_CATALOGUE.length);
+  const result = await lookupInstitutionServices({ domain: 'usal.es' }, { fetchImpl: stub.fetchImpl });
+  assert.ok(SERVICE_CATALOGUE.length > SUBREQUEST_BUDGET, 'the catalogue is what overran the budget');
+  assert.equal(stub.calls.length, SUBREQUEST_BUDGET);
   assert.equal(stub.maxInFlight(), 4);
+  // In catalogue order: the platforms most libraries hold are asked first.
+  assert.deepEqual(
+    stub.calls.map(call => call.url.searchParams.get('rft.issn')),
+    SERVICE_CATALOGUE.slice(0, SUBREQUEST_BUDGET).map(entry => entry.issn),
+  );
+  assert.equal(result.unchecked, SERVICE_CATALOGUE.length - SUBREQUEST_BUDGET);
+  assert.equal(result.partial, false);
 });
 
 test('every catalogue entry names a distinct, well-formed journal and DOI', () => {
@@ -292,11 +328,32 @@ test('the route caches a complete list for seven days under the normalized domai
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('access-control-allow-origin'), 'https://papertok.app');
   assert.equal(body.partial, false);
-  assert.equal(body.services.length, SERVICE_CATALOGUE.length);
+  assert.equal(body.services.length, SUBREQUEST_BUDGET);
+  assert.equal(body.unchecked, SERVICE_CATALOGUE.length - SUBREQUEST_BUDGET);
   assert.equal(servicePuts.length, 1);
-  // Without a GetFTR key the entityId reaches no provider, so it does not split the cache.
-  assert.deepEqual([...new URL(servicePuts[0].key).searchParams], [['domain', 'usal.es']]);
+  // Without a GetFTR key the entityId reaches no provider, so it does not
+  // split the cache; the catalogue's fingerprint does, so a changed
+  // catalogue is not served from a week-old list.
+  assert.deepEqual([...new URL(servicePuts[0].key).searchParams], [
+    ['domain', 'usal.es'],
+    ['catalogue', catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET)],
+  ]);
   assert.match(servicePuts[0].response.headers.get('cache-control'), /s-maxage=604800/);
+});
+
+test('the cache key changes with the catalogue and the budget, and with nothing else', () => {
+  const fingerprint = catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET);
+  assert.match(fingerprint, /^[0-9a-f]{8}$/);
+  assert.equal(catalogueFingerprint([...SERVICE_CATALOGUE], SUBREQUEST_BUDGET), fingerprint);
+  assert.notEqual(catalogueFingerprint(SERVICE_CATALOGUE.slice(0, 14), SUBREQUEST_BUDGET), fingerprint);
+  assert.notEqual(catalogueFingerprint(SERVICE_CATALOGUE, SUBREQUEST_BUDGET + 30), fingerprint);
+  const swapped = SERVICE_CATALOGUE.map((entry, index) => (index === 0 ? { ...entry, doi: '10.1016/j.other.2021.1' } : entry));
+  assert.notEqual(catalogueFingerprint(swapped, SUBREQUEST_BUDGET), fingerprint);
+  assert.deepEqual(servicesCacheParams({ domain: 'usal.es', entityId: ENTITY_ID }, {}), { domain: 'usal.es', catalogue: fingerprint });
+  assert.deepEqual(
+    servicesCacheParams({ domain: 'usal.es', entityId: ENTITY_ID }, GETFTR_ENV),
+    { domain: 'usal.es', entityId: ENTITY_ID, catalogue: fingerprint },
+  );
 });
 
 test('the route caches a partial list for an hour', async () => {

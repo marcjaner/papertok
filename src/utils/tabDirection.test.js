@@ -6,7 +6,7 @@ import { TAB_ORDER, lateralTabDirection } from './tabDirection.js';
 const fresh = () => ({});
 
 test('the bar order is the order the navbar renders', () => {
-  assert.deepEqual(TAB_ORDER, ['/feed', '/research', '/following']);
+  assert.deepEqual(TAB_ORDER, ['/feed', '/following']);
 });
 
 test('the first tab seen has nothing to compare against', () => {
@@ -21,16 +21,6 @@ test('moving right along the bar goes one way and moving left goes the other', (
   assert.equal(lateralTabDirection('/feed', memory), null);
   assert.equal(lateralTabDirection('/following', memory), 1);
   assert.equal(lateralTabDirection('/feed', memory), -1);
-});
-
-test('the sign is the distance along the bar, not the number of tabs crossed', () => {
-  const memory = fresh();
-  lateralTabDirection('/feed', memory);
-  // Two tabs to the right is still 1: the page travels a fixed 18px whatever
-  // the distance, so only the side matters.
-  assert.equal(lateralTabDirection('/following', memory), 1);
-  assert.equal(lateralTabDirection('/research', memory), -1);
-  assert.equal(lateralTabDirection('/following', memory), 1);
 });
 
 test('the same tab twice repeats the answer instead of cancelling it', () => {

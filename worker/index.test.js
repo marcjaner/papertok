@@ -57,6 +57,42 @@ test('the retired /locale route no longer reveals the caller\'s country', async 
   assert.doesNotMatch(await response.text(), /MX/);
 });
 
+test('the retired /ai/hooks and /ai/explain routes answer 405 and spend nothing', async () => {
+  const ledger = recordingLedger();
+  const fetched = [];
+  const env = {
+    FIREBASE_WEB_API_KEY: 'firebase-test-key',
+    AI_PROVIDER: 'nan',
+    NAN_API_KEY: 'sk-test-key',
+    GEMINI_API_KEY: 'gemini-test-key',
+    REQUEST_QUOTA_LEDGER: ledger.binding,
+  };
+  await withWorkerFetchMock(async input => {
+    fetched.push(String(input?.url || input));
+    return new Response('{}');
+  }, async () => {
+    for (const path of ['/ai/hooks', '/ai/explain']) {
+      const response = await reportApi.fetch(new Request(`https://papertok-report-api.example${path}`, {
+        method: 'POST',
+        headers: {
+          origin: 'https://mugar123.github.io',
+          authorization: 'Bearer test-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          papers: [{ id: 'p1', title: 'A paper', abstract: 'x'.repeat(300) }],
+          paper: { title: 'A paper', abstract: 'x'.repeat(300) },
+          level: 'university',
+        }),
+      }), env);
+      assert.equal(response.status, 405, path);
+    }
+  });
+
+  assert.deepEqual(fetched, []);
+  assert.deepEqual(ledger.reservations, []);
+});
+
 test('returns an unhealthy status when the email provider works but the scheduler is stale', async () => {
   const env = {
     EMAIL_PROVIDER: 'brevo',

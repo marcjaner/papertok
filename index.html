@@ -26,10 +26,10 @@
          from `Referer`, so it read `https://papertok.app/` whatever route you
          were on. Real paths (src/main.jsx) put the identifier back in it.
 
-         /privacy.html promises the opposite in as many words: "reading a
-         specific paper is recorded as /public/paper/:id [...] Which one never
+         /privacy.html promises the opposite in as many words: "Reading a
+         specific paper is recorded as /public/paper/:id [...] which one never
          travels." `strict-origin` caps every request this document makes — the
-         analytics script, the API calls, an outbound link to a publisher — at
+         analytics requests, the API calls, an outbound link to a publisher — at
          the origin, so the promise does not depend on any one of them behaving.
          Not `no-referrer`: an origin-restricted API key checks this header, and
          `https://papertok.app/` still satisfies such a check. -->

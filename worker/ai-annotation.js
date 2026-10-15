@@ -25,12 +25,12 @@ import {
 /**
  * One passage, explained where the reader is standing.
  *
- * This is the smallest of the three AI routes and it is deliberately not built
- * like the other two. `/ai/explain` reads a whole paper and `/ai/rewrite`
- * streams one; this one answers a question about forty words the reader already
- * has in front of them, and it is asked mid-sentence, so what it optimises for
- * is arriving quickly. Hence: no PDF fetch, no provider chain, no streaming, a
- * single short call with a low thinking budget, and a hard cap on the answer.
+ * This is the smaller of the two AI routes and it is deliberately not built
+ * like the other. `/ai/rewrite` streams a whole paper; this one answers a
+ * question about forty words the reader already has in front of them, and it is
+ * asked mid-sentence, so what it optimises for is arriving quickly. Hence: no
+ * PDF fetch, no streaming, a single short call with a low thinking budget, and
+ * a hard cap on the answer.
  *
  * A long answer here would also be the wrong answer. The reader did not ask for
  * a second rewrite of the paper; they pointed at one sentence and asked what it
@@ -239,8 +239,8 @@ export async function handlePassageAnnotation(request, env) {
   const model = provider === 'nan'
     ? nanModel(env)
     : cleanText(env.AI_ANNOTATION_MODEL || DEFAULT_MODEL, 100) || DEFAULT_MODEL;
-  // Reserved before the call and handed back by the same predicate the other
-  // two routes use, so a provider outage never costs the reader a use.
+  // Reserved before the call and handed back by the same predicate /ai/rewrite
+  // uses, so a provider outage never costs the reader a use.
   const quota = await reserveAIQuota(env, account.uid, { unlimited: account.unlimitedAI });
   try {
     const result = await requestAnnotation({

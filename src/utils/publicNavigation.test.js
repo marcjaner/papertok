@@ -222,6 +222,7 @@ test('SOURCE: nothing in this codebase mints a public URL with the fragment in i
   // Comments are stripped first: four files explain the old shape in prose,
   // and prose about a bug must not read as the bug.
   const { readdir, readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
   const roots = ['src', 'worker'];
   const offenders = [];
   const walk = async (dir) => {
@@ -235,7 +236,7 @@ test('SOURCE: nothing in this codebase mints a public URL with the fragment in i
       if (/papertok\.app\/#/.test(code)) offenders.push(full);
     }
   };
-  for (const root of roots) await walk(new URL(`../../${root}`, import.meta.url).pathname);
+  for (const root of roots) await walk(fileURLToPath(new URL(`../../${root}`, import.meta.url)));
   assert.deepEqual(offenders, [], `these still mint a fragment URL: ${offenders.join(', ')}`);
 });
 

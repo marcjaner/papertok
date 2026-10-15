@@ -10,6 +10,7 @@ import {
   persistAnalyticsConsent,
   PRODUCT_ANALYTICS_EVENTS,
   readAnalyticsConsent,
+  sanitizeAnalyticsCapture,
   sanitizeAnalyticsEventUrl,
   sanitizeAnalyticsLocation,
   sanitizeProductEventParams,
@@ -27,7 +28,7 @@ function memoryStorage(initial = {}) {
   };
 }
 
-// Nobody is asked any more (2026-09-17): Vercel Web Analytics sets no cookies,
+// Nobody is asked any more (2026-09-17): the analytics transport sets no cookies,
 // so measurement is on unless the reader turns it off in Settings. An empty
 // store therefore reads as granted, and only an explicit "denied" turns it off.
 // The default is not written down -- it is not a choice, and a store that
@@ -105,6 +106,36 @@ test('falls back to a consent cookie when browser storage is unavailable', t => 
   assert.equal(persistAnalyticsConsent(ANALYTICS_CONSENT.GRANTED), true);
   assert.equal(readAnalyticsConsent(), ANALYTICS_CONSENT.GRANTED);
   assert.equal(consentCookie, `${ANALYTICS_CONSENT_COOKIE_KEY}=${ANALYTICS_CONSENT.GRANTED}`);
+});
+
+// A visitor's Privacy panel says "Not saved" on exactly this `false`. A browser
+// that keeps neither the storage entry nor the cookie must not be told the
+// choice took, and nothing about the stored choice may change.
+test('a choice neither browser storage nor a cookie will keep is reported as not saved', async t => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('storage unavailable'); },
+  });
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      get cookie() { return ''; },
+      set cookie(_value) {},
+    },
+  });
+
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+    else delete globalThis.document;
+  });
+
+  assert.equal(await setAnalyticsConsent(ANALYTICS_CONSENT.DENIED), false);
+  assert.equal(readAnalyticsConsent(), ANALYTICS_CONSENT.GRANTED);
 });
 
 test('restores a previous consent decision from its cookie after a reload', t => {
@@ -260,13 +291,14 @@ test('builds page locations from the sanitized path and origin only', () => {
 });
 
 /**
- * The payload Vercel's own script builds, not the one this app hands it. It
+ * The URL PostHog attaches to every event, not one this app hands it. It
  * reads `location.href`, and since the router moved off the fragment that URL
  * carries the real entity id in the PATH -- so this is the function standing
  * between a paper id and a request leaving the browser. The policy published at
- * /privacy.html promises it never does: "reading a specific paper is recorded
- * as /public/paper/:id [...] Which one never travels. Neither do your searches
- * or anything from your account."
+ * /privacy.html promises it never does: "Reading a specific paper is recorded
+ * as /public/paper/:id [...] which one never travels. A search is recorded as
+ * a search, with its type and how many results it returned, never with what
+ * you searched for."
  *
  * Every route on this origin that carries something belonging to a reader is
  * here: the paper, the author, the list, the handle (a person, not an id) and
@@ -341,6 +373,137 @@ test('falls back to the real path when there is no hash route, and never returns
   assert.equal(sanitizeAnalyticsEventUrl(undefined), '/');
 });
 
+/**
+ * What posthog-js 1.435.5 hands `before_send` (real keys, synthetic values).
+ * With the options in analyticsService.js every event carries the raw address
+ * with the search in it and the words typed into a search engine, and page
+ * views also carry the page title and the previous path. The referrer and
+ * campaign ids appear only with other options, and are here so the allowlist is
+ * tested against them too.
+ */
+function postHogCapture(event, properties) {
+  return {
+    uuid: '0199c5a1-7f3e-7c4a-9d2b-1f6e8a4b3c2d',
+    event,
+    timestamp: new Date('2026-10-15T08:00:00Z'),
+    properties: {
+      token: 'phc_test',
+      distinct_id: '$posthog_cookieless',
+      $cookieless_mode: true,
+      $process_person_profile: false,
+      $raw_user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      $host: 'papertok.app',
+      $timezone: 'Europe/Madrid',
+      $insert_id: 'k3x9q2',
+      $time: 1792051200,
+      $lib: 'web',
+      $lib_version: '1.435.5',
+      $browser: 'Chrome',
+      $os: 'Mac OS X',
+      $device_type: 'Desktop',
+      $current_url: 'https://papertok.app/search?q=crispr+gene&utm_source=newsletter&gclid=abc123#frag',
+      $pathname: '/search',
+      title: 'CRISPR base editing in human embryos | PaperTok',
+      $prev_pageview_pathname: '/public/paper/W999',
+      $referrer: 'https://www.google.com/search?q=private+words',
+      $referring_domain: 'www.google.com',
+      $search_engine: 'google',
+      ph_keyword: 'private words',
+      utm_source: 'newsletter',
+      gclid: 'abc123',
+      $screen_height: 1117,
+      $lib_custom_api_host: '/ingest',
+      ...properties,
+    },
+    $set_once: { $initial_current_url: 'https://papertok.app/public/paper/W999' },
+  };
+}
+
+test('an event leaves with the normalized address and nothing that names a paper, a person or a search', () => {
+  const sent = sanitizeAnalyticsCapture(
+    postHogCapture('search_performed', { search_type: 'papers', result_count: 12, has_results: true, query: 'crispr' }),
+    ANALYTICS_CONSENT.GRANTED,
+  );
+
+  assert.equal(sent.properties.$current_url, 'https://papertok.app/search');
+  assert.equal(sent.properties.$pathname, '/search');
+  // The event's own schema still decides its parameters: `query` is not one.
+  assert.equal(sent.properties.search_type, 'papers');
+  assert.equal(sent.properties.result_count, 12);
+  assert.equal(sent.properties.has_results, true);
+
+  const payload = JSON.stringify(sent);
+  // The time zone is in the list too: it says roughly where the reader is.
+  for (const secret of ['crispr', 'CRISPR', 'W999', 'private words', 'abc123', 'newsletter', 'google', 'Europe/Madrid']) {
+    assert.ok(!payload.includes(secret), `"${secret}" left with the event`);
+  }
+  assert.equal(sent.$set_once, undefined, 'no person properties travel');
+});
+
+test('an event keeps what PostHog needs to accept and count it without cookies', () => {
+  const sent = sanitizeAnalyticsCapture(postHogCapture('$pageview', {}), ANALYTICS_CONSENT.GRANTED);
+  // The server drops a cookieless event without the user agent or the host,
+  // and the client drops one without its token. Without the cookieless
+  // marker, every visitor would become one person.
+  assert.equal(sent.properties.token, 'phc_test');
+  assert.equal(sent.properties.distinct_id, '$posthog_cookieless');
+  assert.equal(sent.properties.$cookieless_mode, true);
+  assert.equal(sent.properties.$raw_user_agent, postHogCapture('$pageview', {}).properties.$raw_user_agent);
+  assert.equal(sent.properties.$host, 'papertok.app');
+  assert.equal(sent.uuid, '0199c5a1-7f3e-7c4a-9d2b-1f6e8a4b3c2d');
+});
+
+test('a page view on a paper is filed under the pattern, without the paper\'s title', () => {
+  const sent = sanitizeAnalyticsCapture(
+    postHogCapture('$pageview', { $current_url: 'https://papertok.app/public/paper/W2741809807', $pathname: '/public/paper/W2741809807' }),
+    ANALYTICS_CONSENT.GRANTED,
+  );
+  assert.equal(sent.properties.$current_url, 'https://papertok.app/public/paper/:id');
+  assert.equal(sent.properties.$pathname, '/public/paper/:id');
+  assert.equal(sent.properties.title, undefined);
+  assert.ok(!JSON.stringify(sent).includes('W2741809807'));
+});
+
+test('nothing leaves that is not a page view or a registered event, or once analytics is off', () => {
+  for (const event of ['$autocapture', '$pageleave', '$exception', '$identify', 'made_up_event']) {
+    assert.equal(sanitizeAnalyticsCapture(postHogCapture(event, {}), ANALYTICS_CONSENT.GRANTED), null, event);
+  }
+  assert.equal(sanitizeAnalyticsCapture(postHogCapture('$pageview', {}), ANALYTICS_CONSENT.DENIED), null);
+  assert.equal(sanitizeAnalyticsCapture(null, ANALYTICS_CONSENT.GRANTED), null);
+});
+
+/**
+ * The options are where PostHog's own collection is switched off, and each one
+ * below stands for a promise: no cookies or storage, no person profiles, no
+ * clicks or page views read off the screen, no recordings or surveys, nothing
+ * the PostHog dashboard can switch back on, no script fetched besides the
+ * module, and every event through the sanitizer. Read from the source because
+ * the library only runs in a browser.
+ */
+test('SOURCE: PostHog starts cookieless, with its own collection off and every event sanitized', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const code = (await readFile(new URL('./analyticsService.js', import.meta.url), 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const options = code.match(/const POSTHOG_OPTIONS = \{([\s\S]*?)\n\};/)?.[1];
+  assert.ok(options, 'the PostHog options are gone');
+
+  for (const setting of [
+    /cookieless_mode: 'always'/,
+    /person_profiles: 'never'/,
+    /autocapture: false/,
+    /capture_pageview: false/,
+    /disable_session_recording: true/,
+    /disable_surveys: true/,
+    /advanced_disable_flags: true/,
+    /disable_external_dependency_loading: true/,
+    /before_send: sanitizeAnalyticsCapture/,
+  ]) {
+    assert.match(options, setting);
+  }
+  assert.match(code, /posthog\.init\(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS\)/);
+});
+
 test('keeps only event-specific categorical and bounded analytics parameters', () => {
   assert.deepEqual(sanitizeProductEventParams('paper_open', {
     surface: 'feed',
@@ -406,6 +569,53 @@ test('tracks a day-7 return at the boundary and only once', async () => {
   assert.equal(await trackDay7Return({ storage, now: 1000 + sevenDays, track }), true);
   assert.equal(await trackDay7Return({ storage, now: 1000 + sevenDays + 1, track }), false);
   assert.deepEqual(events, ['activation', 'day_7_return']);
+});
+
+/**
+ * The first event of a page waits for PostHog to load, so two calls can be in
+ * flight at once: opening `/` asks on the way in and again after the redirect
+ * to `/feed`. Each mark still has to leave once, and stay unsent when the send
+ * fails.
+ */
+test('a mark asked for twice while the first send is still waiting leaves once', async () => {
+  const storage = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  const events = [];
+  let release;
+  const loaded = new Promise(resolve => { release = resolve; });
+  const track = async eventName => {
+    events.push(eventName);
+    await loaded;
+    return true;
+  };
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+  const activations = [markActivation({ storage, now: 1000, track }), markActivation({ storage, now: 1000, track })];
+  release();
+  assert.deepEqual(await Promise.all(activations), [true, false]);
+
+  const returns = [
+    trackDay7Return({ storage, now: 1000 + sevenDays, track }),
+    trackDay7Return({ storage, now: 1000 + sevenDays, track }),
+  ];
+  assert.deepEqual(await Promise.all(returns), [true, false]);
+  assert.deepEqual(events, ['activation', 'day_7_return']);
+
+  const failing = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  assert.equal(await markActivation({ storage: failing, now: 1000, track: async () => false }), false);
+  assert.equal(await markActivation({ storage: failing, now: 2000, track }), true, 'a failed send is retried');
+});
+
+test('a mark whose send has not finished is not stored as sent', async () => {
+  // If the tab closes while PostHog is still loading, the send never settles,
+  // and whatever storage says at that moment is what the next visit reads.
+  // Nothing may say the mark left, or that visit would never send it.
+  const storage = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  let settle;
+  const pending = markActivation({ storage, now: 1000, track: () => new Promise(resolve => { settle = resolve; }) });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(storage.getItem('papertok_analytics_activation_sent'), null);
+  settle(false);
+  assert.equal(await pending, false);
 });
 
 test('clears consent-scoped activation state when consent is denied', async t => {

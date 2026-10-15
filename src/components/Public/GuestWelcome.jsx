@@ -12,6 +12,7 @@ import { CATEGORIES } from '../../data/categories.js';
 import { normalizeGuestAreas, normalizeGuestTopics } from '../../utils/guestInterests.js';
 import { WelcomeReadingChoice, WelcomeInboxChoice, WelcomeProjectSupport } from './GuestWelcomePreferences.jsx';
 import { AreaPicker, SubtopicsPicker, WelcomeCopy, WelcomeShell } from './WelcomeShell.jsx';
+import PrivacyPopover from './PrivacyPopover.jsx';
 import './GuestWelcome.css';
 
 // The first thing a visitor sees: a page, not a sheet over a feed they have
@@ -25,6 +26,7 @@ import './GuestWelcome.css';
 // to be answered; the first two screens can skip there. Nothing here asks for
 // an account, but the bar offers Sign in on every screen: someone onboarded on
 // another device goes straight to their account instead of answering again.
+// It offers Privacy too, so analytics can be turned off before anything else.
 //
 // The papers drifting past the first screen are real ones
 // (guestWelcome.test.js holds each to a complete citation).
@@ -465,10 +467,15 @@ export default function GuestWelcome({ initialAreas = [], initialTopics = [], in
       // The intro's skip lands on the question, wherever there is intro left.
       skip={stepIndex < TOPICS_INDEX ? { onClick: () => goTo(TOPICS_INDEX), label: copy.skip } : null}
       barAction={(
-        <button type="button" className="gw-sign-in" onClick={onSignIn}>
-          <SignIn size={15} aria-hidden="true" />
-          Sign in
-        </button>
+        <>
+          {/* Here and not in WelcomeShell: account onboarding shares the shell
+              and has Settings. A visitor can object before answering anything. */}
+          <PrivacyPopover className="gw-bar-button" />
+          <button type="button" className="gw-sign-in" onClick={onSignIn}>
+            <SignIn size={15} aria-hidden="true" />
+            Sign in
+          </button>
+        </>
       )}
     >
       {step === 'welcome' ? (

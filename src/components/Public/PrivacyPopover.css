@@ -1,0 +1,61 @@
+/* The guest's privacy panel. Unlayered on purpose: these rules have to beat
+   the popover primitive's width utility (design.md, traps). The popup is
+   portaled to <body>, so nothing here is rooted in a page container. */
+.privacy-popover {
+  display: grid;
+  /* One column that never grows past the popup: a line that cannot wrap
+     would otherwise widen it and scroll it sideways at large text sizes. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  width: min(18rem, calc(100vw - 2 * var(--space-3)));
+  max-height: var(--available-height);
+  overflow-y: auto;
+}
+
+.privacy-popover-title {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.privacy-popover-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+}
+
+/* The whole row is the target, and it clears 44px. */
+.privacy-popover-switch {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--border-subtle);
+  line-height: var(--lh-normal);
+  cursor: pointer;
+}
+
+.privacy-popover-status {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+}
+
+.privacy-popover-status.is-failed {
+  color: var(--tint-red-fg);
+}
+
+/* The ghost-button look comes with `whitespace-nowrap`; at 200% text this
+   link has to wrap instead. */
+.privacy-popover-policy {
+  justify-self: start;
+  white-space: normal;
+}
+
+.privacy-popover-trigger[data-popup-open] {
+  color: var(--text-primary);
+  background: var(--bg-glass);
+}

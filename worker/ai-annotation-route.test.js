@@ -223,6 +223,27 @@ test('without a provider key it is not configured, rather than broken', async ()
   assert.deepEqual(ledger.actions, []);
 });
 
+test('a quota ledger that is merely unreachable is not «not configured»', async () => {
+  const unreachable = {
+    idFromName: () => 'quota-id',
+    get: () => ({ fetch: async () => new Response('boom', { status: 500 }) }),
+  };
+  const { result: [outage, missing], calls } = await withModel(
+    modelSaid('no debería llegar aquí'),
+    () => withCachedIdentity(async () => [
+      await reportApi.fetch(annotationRequest(), annotationEnv(unreachable)),
+      await reportApi.fetch(annotationRequest(), annotationEnv(undefined)),
+    ]),
+  );
+
+  // Transient: the reader gets a retry button instead of «not available yet».
+  assert.equal(outage.status, 503);
+  assert.equal((await outage.json()).code, 'AI_UNAVAILABLE');
+  assert.equal(missing.status, 503);
+  assert.equal((await missing.json()).code, 'AI_NOT_CONFIGURED');
+  assert.equal(calls.length, 0);
+});
+
 test('GET is not how you ask for an annotation', async () => {
   const response = await reportApi.fetch(
     annotationRequest({ method: 'GET' }),

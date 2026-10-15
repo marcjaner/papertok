@@ -53,7 +53,6 @@ const SaveToListModal = lazyWithPreload(() => import('./components/Lists/SaveToL
 const CommentsSheet = lazyWithPreload(() => import('./components/Comments/CommentsSheet'))
 const SearchPage = lazyWithPreload(() => import('./components/Search/SearchPage'))
 const EntityExplorer = lazyWithPreload(() => import('./components/Explorer/EntityExplorer'))
-const ScientificReport = lazyWithPreload(() => import('./components/Report/ScientificReport'))
 const FollowingFeedPage = lazyWithPreload(() => import('./components/Following/FollowingFeedPage'))
 const SettingsPage = lazyWithPreload(() => import('./components/Settings/SettingsPage'))
 const FollowingSettingsPage = lazyWithPreload(() => import('./components/Settings/FollowingSettingsPage'))
@@ -144,7 +143,7 @@ function AppContent() {
   const pageTransitionCustom = usePageTransitionCustom()
   const { user, loading: authLoading, onboardingComplete, profileLoadError } = useAuth()
   const normalizedPathname = location.pathname === '/' ? '/' : location.pathname.replace(/\/+$/, '')
-  const navbarRoutes = ['/feed', '/lists', '/research', '/following', '/profile', '/settings', '/settings/profile', '/settings/discovery', '/settings/reading', '/settings/notifications', '/settings/privacy', '/settings/following', '/settings/comments']
+  const navbarRoutes = ['/feed', '/lists', '/following', '/profile', '/settings', '/settings/profile', '/settings/discovery', '/settings/reading', '/settings/notifications', '/settings/privacy', '/settings/following', '/settings/comments']
   // The paper, profile, list and entity pages keep the app chrome for a
   // signed-in user — reaching a paper from Liked, a profile from the follow
   // sheet, a list from someone's shared link, or an author from a card, must
@@ -250,7 +249,6 @@ function AppContent() {
       CommentsSheet.preload().catch(() => {})
       PDFViewer.preload().catch(() => {})
       SaveToListModal.preload().catch(() => {})
-      ScientificReport.preload().catch(() => {})
       FollowingFeedPage.preload().catch(() => {})
       // The avatar and the gear are one tap from every screen. Fetched on
       // first visit instead, the profile and settings chunks were what a
@@ -376,21 +374,11 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/research"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <ScientificReport
-                    onOpenPdf={openPdf}
-                    onSaveToList={setSaveModalPaper}
-                  />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
-          {/* Legacy Novedades/Reporte links keep working. */}
-          <Route path="/report" element={<Navigate to="/research" replace />} />
+          {/* Research is hidden while the MVP is trimmed down; its code stays
+              in components/Report. Its address and the legacy Novedades/Reporte
+              one land on the feed instead of the not-found page. */}
+          <Route path="/research" element={<Navigate to="/feed" replace />} />
+          <Route path="/report" element={<Navigate to="/feed" replace />} />
           <Route
             path="/following"
             element={
