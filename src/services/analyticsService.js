@@ -355,9 +355,10 @@ function clearConsentScopedAnalyticsState(storage = getBrowserStorage()) {
 }
 
 // Granting only has to persist: nothing is loaded until the next event asks
-// for it. Withdrawing stops every send at once, because the senders below and
-// `sanitizeAnalyticsCapture` read the stored choice at capture time; a library
-// already loaded in this tab stays in memory but sends nothing more.
+// for it. Withdrawing stops recording at once, because the senders below and
+// `sanitizeAnalyticsCapture` read the stored choice at capture time. A library
+// already loaded in this tab stays in memory and records nothing new; events
+// recorded in the seconds before can still leave in PostHog's next batch.
 // Kept `async` because every caller awaits it.
 export async function setAnalyticsConsent(value) {
   if (!persistAnalyticsConsent(value)) return false;
@@ -366,8 +367,8 @@ export async function setAnalyticsConsent(value) {
   return true;
 }
 
-// Public by design, like the Firebase web config: this token can only send
-// events to the project, never read anything back.
+// Public by design, like the Firebase web config: this token sends events and
+// reads the project's public client config (flags, surveys), never its data.
 const POSTHOG_PROJECT_TOKEN = 'phc_BNGdTudnBx4BoLJFLChGGbCzsBtNLagJJ5vgiVNha9yy';
 
 // Only the production site reports. Preview deployments are production builds
@@ -408,14 +409,15 @@ const POSTHOG_OPTIONS = {
 
 /**
  * What survives of PostHog's own properties: the ones it needs to accept and
- * hash a cookieless event (the server drops one without `$raw_user_agent`,
- * `$host` or `$timezone`, and deletes the user agent once hashed), and a coarse
- * picture of the device. The rest of what the SDK attaches is dropped, and some
- * of it would carry the person or the paper: `title` is a paper's title or a
- * person's name on public pages, `$pathname` and `$prev_pageview_pathname` are
- * raw paths, and `ph_keyword` is what the reader typed into a search engine.
- * An allowlist, so a property a future SDK version adds stays home until
- * someone decides otherwise.
+ * hash a cookieless event (the server drops one without `$raw_user_agent` or
+ * `$host`, and deletes the user agent once hashed), and a coarse picture of the
+ * device. The rest of what the SDK attaches is dropped, and some of it would
+ * carry the person or the paper: `title` is a paper's title or a person's name
+ * on public pages, `$pathname` and `$prev_pageview_pathname` are raw paths,
+ * `ph_keyword` is what the reader typed into a search engine, and `$timezone`
+ * says roughly where they are (without it, PostHog's daily hash turns over at
+ * the project's midnight instead of the reader's). An allowlist, so a property
+ * a future SDK version adds stays home until someone decides otherwise.
  */
 const POSTHOG_PROPERTIES = new Set([
   'token',
@@ -424,7 +426,6 @@ const POSTHOG_PROPERTIES = new Set([
   '$process_person_profile',
   '$raw_user_agent',
   '$host',
-  '$timezone',
   '$insert_id',
   '$time',
   '$lib',
@@ -466,24 +467,35 @@ export function sanitizeAnalyticsCapture(capture, consent = readAnalyticsConsent
 
 let analyticsClient = null;
 
+// Vite reports a dynamic import that fails as `vite:preloadError`, and main.jsx
+// answers with a reload, meant for a deploy that took a route's chunk away.
+// Analytics that cannot load is no reason to reload the reader's page, so the
+// event is stopped before main.jsx hears it while this import is in flight.
+// A capture listener on the target runs before main.jsx's ordinary one.
+const keepAnalyticsFailureQuiet = event => event.stopImmediatePropagation();
+
 /**
  * Loaded on the first event of a reader who has not turned analytics off, so
  * for anyone who has, the library is never even downloaded. PostHog drops a
  * capture made before `init` instead of queueing it, so every send waits for
  * this promise rather than firing into a client that is not ready yet.
+ *
+ * A load that fails (offline, or a deploy mid-session) is not retried: the tab
+ * stops reporting, and the next page load tries again.
  */
 function loadAnalyticsClient() {
-  analyticsClient ??= import('posthog-js')
-    .then(({ posthog }) => {
-      posthog.init(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS);
-      return posthog;
-    })
-    .catch(() => {
-      // A chunk that would not load (offline, or a deploy mid-session) is
-      // retried by the next event instead of disabling analytics for the tab.
-      analyticsClient = null;
-      return null;
-    });
+  if (!analyticsClient) {
+    window.addEventListener('vite:preloadError', keepAnalyticsFailureQuiet, { capture: true });
+    analyticsClient = import('posthog-js')
+      .then(({ posthog }) => {
+        posthog.init(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS);
+        return posthog;
+      })
+      .catch(() => null)
+      .finally(() => {
+        window.removeEventListener('vite:preloadError', keepAnalyticsFailureQuiet, { capture: true });
+      });
+  }
   return analyticsClient;
 }
 
@@ -583,10 +595,16 @@ export async function markActivation({ storage = getBrowserStorage(), now = Date
   try {
     if (storage?.getItem(ANALYTICS_ACTIVATION_EVENT_KEY) === 'true') return false;
     const timestamp = resolveTimestamp(now);
-    const tracked = await track('activation');
-    if (!tracked) return false;
-    storage?.setItem(ANALYTICS_ACTIVATION_KEY, String(timestamp));
+    // Marked before the send and cleared if it fails: the first event of a page
+    // waits for PostHog to load, and a second call in that window would
+    // otherwise pass the check above and send the mark twice.
     storage?.setItem(ANALYTICS_ACTIVATION_EVENT_KEY, 'true');
+    const tracked = await track('activation').catch(() => false);
+    if (!tracked) {
+      storage?.removeItem(ANALYTICS_ACTIVATION_EVENT_KEY);
+      return false;
+    }
+    storage?.setItem(ANALYTICS_ACTIVATION_KEY, String(timestamp));
     return true;
   } catch {
     return false;
@@ -601,9 +619,14 @@ export async function trackDay7Return({ storage = getBrowserStorage(), now = Dat
     const activatedAt = Number(storage?.getItem(ANALYTICS_ACTIVATION_KEY));
     if (!Number.isFinite(activatedAt) || activatedAt <= 0) return false;
     if (resolveTimestamp(now) - activatedAt < DAY_7_MS) return false;
-    const tracked = await track('day_7_return');
-    if (!tracked) return false;
+    // Marked first for the same reason as in `markActivation`: opening `/`
+    // redirects to `/feed`, and both page changes ask before PostHog has loaded.
     storage?.setItem(ANALYTICS_DAY_7_KEY, 'true');
+    const tracked = await track('day_7_return').catch(() => false);
+    if (!tracked) {
+      storage?.removeItem(ANALYTICS_DAY_7_KEY);
+      return false;
+    }
     return true;
   } catch {
     return false;

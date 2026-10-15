@@ -40,7 +40,7 @@ test('SOURCE: a page view is sent on every pathname change, and only while analy
  *
  * Under HashRouter this was safe for free — a fragment is stripped out of
  * `Referer` — so nothing in the app ever had to say so. Real paths
- * (src/main.jsx) ended that, and `/privacy.html` still promises "Which one
+ * (src/main.jsx) ended that, and `/privacy.html` still promises "which one
  * never travels". `strict-origin` is the one line that keeps it, for the
  * analytics requests and for every other request the app makes.
  */

@@ -50,13 +50,14 @@ export default function GuestFeedPage({
       || trackedDemoRef.current
     ) return undefined;
 
-    let active = true;
+    // Marked before the send and cleared if it fails: the first event of a page
+    // waits for PostHog to load, and a change in the paper count meanwhile
+    // re-runs this effect, which would otherwise send the start twice.
+    trackedDemoRef.current = true;
     trackEvent('guest_demo_start', { entry_point: 'home', language }).then(tracked => {
-      if (active && tracked) trackedDemoRef.current = true;
+      if (!tracked) trackedDemoRef.current = false;
     });
-    return () => {
-      active = false;
-    };
+    return undefined;
   }, [consent, guestFeed.loading, guestFeed.papers.length, language, trackEvent]);
 
   const requestAccount = useCallback((action = 'other') => {

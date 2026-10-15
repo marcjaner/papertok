@@ -265,9 +265,10 @@ test('builds page locations from the sanitized path and origin only', () => {
  * reads `location.href`, and since the router moved off the fragment that URL
  * carries the real entity id in the PATH -- so this is the function standing
  * between a paper id and a request leaving the browser. The policy published at
- * /privacy.html promises it never does: "reading a specific paper is recorded
- * as /public/paper/:id [...] Which one never travels. Neither do your searches
- * or anything from your account."
+ * /privacy.html promises it never does: "Reading a specific paper is recorded
+ * as /public/paper/:id [...] which one never travels. A search is recorded as
+ * a search, with its type and how many results it returned, never with what
+ * you searched for."
  *
  * Every route on this origin that carries something belonging to a reader is
  * here: the paper, the author, the list, the handle (a person, not an id) and
@@ -343,11 +344,12 @@ test('falls back to the real path when there is no hash route, and never returns
 });
 
 /**
- * What posthog-js 1.435.5 actually hands `before_send`, shaped after a capture
- * recorded with the options in analyticsService.js (synthetic values, real
- * keys). Its own properties carry the paper's title, the raw address with the
- * search in it, the previous path, the words typed into a search engine and
- * every campaign id, on custom events as much as on page views.
+ * What posthog-js 1.435.5 hands `before_send` (real keys, synthetic values).
+ * With the options in analyticsService.js its own properties carry the page
+ * title, the raw address with the search in it, the previous path and the words
+ * typed into a search engine, on custom events as much as on page views. The
+ * referrer and campaign ids appear only with other options, and are here so the
+ * allowlist is tested against them too.
  */
 function postHogCapture(event, properties) {
   return {
@@ -401,7 +403,8 @@ test('an event leaves with the normalized address and nothing that names a paper
   assert.equal(sent.properties.has_results, true);
 
   const payload = JSON.stringify(sent);
-  for (const secret of ['crispr', 'CRISPR', 'W999', 'private words', 'abc123', 'newsletter', 'google']) {
+  // The time zone is in the list too: it says roughly where the reader is.
+  for (const secret of ['crispr', 'CRISPR', 'W999', 'private words', 'abc123', 'newsletter', 'google', 'Europe/Madrid']) {
     assert.ok(!payload.includes(secret), `"${secret}" left with the event`);
   }
   assert.equal(sent.$set_once, undefined, 'no person properties travel');
@@ -409,15 +412,14 @@ test('an event leaves with the normalized address and nothing that names a paper
 
 test('an event keeps what PostHog needs to accept and count it without cookies', () => {
   const sent = sanitizeAnalyticsCapture(postHogCapture('$pageview', {}), ANALYTICS_CONSENT.GRANTED);
-  // The server drops a cookieless event without the user agent, the host or the
-  // timezone, and the client drops one without its token. Without the
-  // cookieless marker, every visitor would become one person.
+  // The server drops a cookieless event without the user agent or the host,
+  // and the client drops one without its token. Without the cookieless
+  // marker, every visitor would become one person.
   assert.equal(sent.properties.token, 'phc_test');
   assert.equal(sent.properties.distinct_id, '$posthog_cookieless');
   assert.equal(sent.properties.$cookieless_mode, true);
   assert.equal(sent.properties.$raw_user_agent, postHogCapture('$pageview', {}).properties.$raw_user_agent);
   assert.equal(sent.properties.$host, 'papertok.app');
-  assert.equal(sent.properties.$timezone, 'Europe/Madrid');
   assert.equal(sent.uuid, '0199c5a1-7f3e-7c4a-9d2b-1f6e8a4b3c2d');
 });
 
@@ -537,6 +539,40 @@ test('tracks a day-7 return at the boundary and only once', async () => {
   assert.equal(await trackDay7Return({ storage, now: 1000 + sevenDays, track }), true);
   assert.equal(await trackDay7Return({ storage, now: 1000 + sevenDays + 1, track }), false);
   assert.deepEqual(events, ['activation', 'day_7_return']);
+});
+
+/**
+ * The first event of a page waits for PostHog to load, so two calls can be in
+ * flight at once: opening `/` asks on the way in and again after the redirect
+ * to `/feed`. Each mark still has to leave once, and stay unsent when the send
+ * fails.
+ */
+test('a mark asked for twice while the first send is still waiting leaves once', async () => {
+  const storage = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  const events = [];
+  let release;
+  const loaded = new Promise(resolve => { release = resolve; });
+  const track = async eventName => {
+    events.push(eventName);
+    await loaded;
+    return true;
+  };
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+  const activations = [markActivation({ storage, now: 1000, track }), markActivation({ storage, now: 1000, track })];
+  release();
+  assert.deepEqual(await Promise.all(activations), [true, false]);
+
+  const returns = [
+    trackDay7Return({ storage, now: 1000 + sevenDays, track }),
+    trackDay7Return({ storage, now: 1000 + sevenDays, track }),
+  ];
+  assert.deepEqual(await Promise.all(returns), [true, false]);
+  assert.deepEqual(events, ['activation', 'day_7_return']);
+
+  const failing = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  assert.equal(await markActivation({ storage: failing, now: 1000, track: async () => false }), false);
+  assert.equal(await markActivation({ storage: failing, now: 2000, track }), true, 'a failed send is retried');
 });
 
 test('clears consent-scoped activation state when consent is denied', async t => {
