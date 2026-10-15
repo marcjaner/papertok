@@ -1,11 +1,7 @@
-// The transport is Vercel Web Analytics. What did NOT move with it is this
-// file's actual subject: the consent gate (an opt-out since 2026-09-17), the
-// event registry, and the path normalizer that keeps an identifier out of a
-// report. `track` queues into
-// `window.vaq` even before the script the <Analytics /> component injects has
-// loaded, so nothing here waits for -- or checks -- an instance the way the
-// Firebase `getAnalytics()` handle had to be checked.
-import { track as sendVercelEvent } from '@vercel/analytics';
+// The transport is PostHog's EU cloud, in cookieless mode, loaded on the first
+// event. What did NOT move with it is this file's actual subject: the consent
+// gate (an opt-out since 2026-09-17), the event registry, and the path
+// normalizer that keeps an identifier out of a report.
 
 export const ANALYTICS_CONSENT_KEY = 'papertok_analytics_consent';
 export const ANALYTICS_CONSENT_COOKIE_KEY = 'papertok_analytics_decision';
@@ -219,9 +215,9 @@ function persistAnalyticsConsentCookie(value) {
 }
 
 // Granted unless the reader has said otherwise. Nobody is asked any more
-// (2026-09-17): Vercel Web Analytics sets no cookies and identifies nobody, so
-// there is nothing to ask permission for, and the switch in Settings is the
-// way out. The default is never written down -- a stored "granted" means
+// (2026-09-17): the analytics transport sets no cookies and identifies nobody
+// (PostHog runs cookieless, see POSTHOG_OPTIONS), and the switch in Settings is
+// the way out. The default is never written down -- a stored "granted" means
 // somebody chose it, a stored "denied" is respected, and an empty store IS the
 // default.
 export function readAnalyticsConsent(storage) {
@@ -289,25 +285,18 @@ export function sanitizeAnalyticsLocation(pathname, browserLocation = globalThis
 }
 
 /**
- * The second door, and the one that is easy to miss. `route`/`path` on the
- * <Analytics /> component are normalized before they are passed, but the Vercel
- * script builds its payload's `url` field from `location.href` on its own, and
- * that string is whatever the address bar says: today
- * `https://papertok.app/public/paper/<the real id>`, because the router moved
- * off the fragment (src/main.jsx mounts a BrowserRouter). That is precisely the
- * value the privacy policy promises never leaves the browser. `beforeSend` is
- * where it gets replaced, and `pathname` is what gets normalized.
+ * The door that is easy to miss. PostHog fills `$current_url` on EVERY event,
+ * page view or not, from `location.href`, and that string is whatever the
+ * address bar says: `https://papertok.app/public/paper/<the real id>`, or
+ * `/search?q=<what was searched>`. That is precisely the value the privacy
+ * policy promises never leaves the browser. `sanitizeAnalyticsCapture` is
+ * where it gets replaced, and this is what replaces it.
  *
  * The fragment branch below is the LEGACY case, and it stays because links
  * minted before the migration are still out there: one arrives as
  * `/#/public/paper/<id>`, and `utils/legacyHashRoute.js` translates it inside
  * the app — so `location.href` can carry a fragment route for the length of one
- * page view. Both doors read the same way and reach the same normalizer.
- *
- * Proven on a real request rather than only here:
- * The probe that measured this (it lived in `scripts/diagnostics/` and went
- * with the landing it also checked) loaded five of these routes
- * in a browser and reads what leaves for `/_vercel/insights/*`.
+ * page view. Both forms read the same way and reach the same normalizer.
  */
 export function sanitizeAnalyticsEventUrl(url) {
   try {
@@ -341,7 +330,7 @@ export function sanitizeProductEventParams(eventName, params = {}) {
  * `_ga_<id>` cookies with a two-year expiry, set by a measurement library this
  * app no longer loads. Nothing reads them any more and nothing else will ever
  * clear them, so they would sit in the browser until 2028 as the only remaining
- * trace of GA4. Vercel Web Analytics sets no cookies of its own, which is why
+ * trace of GA4. The current transport sets no cookies of its own, which is why
  * this is a one-off cleanup on mount rather than part of withdrawing consent.
  */
 export function removeLegacyGoogleAnalyticsCookies() {
@@ -365,9 +354,10 @@ function clearConsentScopedAnalyticsState(storage = getBrowserStorage()) {
   }
 }
 
-// Granting no longer has to reach into a loaded SDK and turn collection on:
-// `AnalyticsProvider` renders <Analytics /> only while consent reads as
-// granted, so withdrawing it unmounts the script and stops the page views.
+// Granting only has to persist: nothing is loaded until the next event asks
+// for it. Withdrawing stops every send at once, because the senders below and
+// `sanitizeAnalyticsCapture` read the stored choice at capture time; a library
+// already loaded in this tab stays in memory but sends nothing more.
 // Kept `async` because every caller awaits it.
 export async function setAnalyticsConsent(value) {
   if (!persistAnalyticsConsent(value)) return false;
@@ -376,40 +366,153 @@ export async function setAnalyticsConsent(value) {
   return true;
 }
 
-// There is no `trackPageView` any more. The <Analytics /> component takes
-// `route` and `path`, and passing `route` makes it set `disableAutoTrack` on the
-// injected script, so the views are emitted from `AnalyticsProvider` instead. A
-// manual emitter on top of that component would double-count every visit.
-//
-// Passing `route` used to be what made page views work AT ALL: the script's own
-// tracking reads `location.pathname`, which under HashRouter was one constant
-// for the whole app. Now that the route is the path, the same argument runs the
-// other way and matters more: the script's own tracking would read a pathname
-// with the paper id in it. `beforeSend` would still rewrite the `url` field,
-// but the route it filed the view under would be the concrete one. Keeping
-// `disableAutoTrack` on is a privacy guarantee now, not an enabling trick.
+// Public by design, like the Firebase web config: this token can only send
+// events to the project, never read anything back.
+const POSTHOG_PROJECT_TOKEN = 'phc_BNGdTudnBx4BoLJFLChGGbCzsBtNLagJJ5vgiVNha9yy';
 
-// On the Hobby plan Vercel accepts page views but DISCARDS custom events, so
-// every call below is sent, billed as nothing, and never appears in the
-// dashboard. The instrumentation stays wired regardless: the day the project
-// moves to Pro these start landing with no code change. `true` here means
-// "handed to the transport", which is as much as a fire-and-forget queue can
-// honestly report.
+// Only the production site reports. Preview deployments are production builds
+// that share vercel.json, and a local server has nothing behind the proxy.
+const ANALYTICS_HOSTS = new Set(['papertok.app', 'www.papertok.app']);
+
+/**
+ * Everything PostHog would switch on by itself stays off. `cookieless_mode`
+ * keeps the SDK out of cookies and storage, and PostHog's servers tell visits
+ * apart with a hash of IP and browser whose salt changes every day. It needs
+ * "Cookieless server hash mode" on in the project settings, or PostHog drops
+ * every event. With flags off, nothing can be switched back on from the
+ * PostHog dashboard, and no script is fetched besides this module. Requests go
+ * to our own origin, which vercel.json rewrites to PostHog's EU host.
+ */
+const POSTHOG_OPTIONS = {
+  api_host: '/ingest',
+  ui_host: 'https://eu.posthog.com',
+  cookieless_mode: 'always',
+  person_profiles: 'never',
+  autocapture: false,
+  capture_pageview: false,
+  capture_heatmaps: false,
+  capture_dead_clicks: false,
+  capture_exceptions: false,
+  capture_performance: false,
+  disable_session_recording: true,
+  disable_surveys: true,
+  advanced_disable_flags: true,
+  disable_external_dependency_loading: true,
+  // Collected only to be thrown away below; the device model is also read
+  // through a high-entropy browser API.
+  save_referrer: false,
+  save_campaign_params: false,
+  disableDeviceModel: true,
+  before_send: sanitizeAnalyticsCapture,
+};
+
+/**
+ * What survives of PostHog's own properties: the ones it needs to accept and
+ * hash a cookieless event (the server drops one without `$raw_user_agent`,
+ * `$host` or `$timezone`, and deletes the user agent once hashed), and a coarse
+ * picture of the device. The rest of what the SDK attaches is dropped, and some
+ * of it would carry the person or the paper: `title` is a paper's title or a
+ * person's name on public pages, `$pathname` and `$prev_pageview_pathname` are
+ * raw paths, and `ph_keyword` is what the reader typed into a search engine.
+ * An allowlist, so a property a future SDK version adds stays home until
+ * someone decides otherwise.
+ */
+const POSTHOG_PROPERTIES = new Set([
+  'token',
+  'distinct_id',
+  '$cookieless_mode',
+  '$process_person_profile',
+  '$raw_user_agent',
+  '$host',
+  '$timezone',
+  '$insert_id',
+  '$time',
+  '$lib',
+  '$lib_version',
+  '$browser',
+  '$browser_version',
+  '$os',
+  '$os_version',
+  '$device_type',
+]);
+
+/**
+ * The last step before an event leaves (`before_send`). Rebuilds it from the
+ * allowlist above, the event's own parameter schema and the normalized URL, and
+ * drops it when it is neither a page view nor a registered event, or when the
+ * reader has turned analytics off.
+ */
+export function sanitizeAnalyticsCapture(capture, consent = readAnalyticsConsent()) {
+  if (!capture || consent !== ANALYTICS_CONSENT.GRANTED) return null;
+  const { event, properties = {} } = capture;
+  if (event !== '$pageview' && !Object.hasOwn(EVENT_PARAMETER_SCHEMAS, event)) return null;
+
+  const currentUrl = sanitizeAnalyticsEventUrl(properties.$current_url);
+  const kept = Object.fromEntries(
+    Object.entries(properties).filter(([key]) => POSTHOG_PROPERTIES.has(key)),
+  );
+  return {
+    uuid: capture.uuid,
+    event,
+    timestamp: capture.timestamp,
+    properties: {
+      ...kept,
+      ...sanitizeProductEventParams(event, properties),
+      $current_url: currentUrl,
+      $pathname: new URL(currentUrl, 'https://papertok.app').pathname,
+    },
+  };
+}
+
+let analyticsClient = null;
+
+/**
+ * Loaded on the first event of a reader who has not turned analytics off, so
+ * for anyone who has, the library is never even downloaded. PostHog drops a
+ * capture made before `init` instead of queueing it, so every send waits for
+ * this promise rather than firing into a client that is not ready yet.
+ */
+function loadAnalyticsClient() {
+  analyticsClient ??= import('posthog-js')
+    .then(({ posthog }) => {
+      posthog.init(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS);
+      return posthog;
+    })
+    .catch(() => {
+      // A chunk that would not load (offline, or a deploy mid-session) is
+      // retried by the next event instead of disabling analytics for the tab.
+      analyticsClient = null;
+      return null;
+    });
+  return analyticsClient;
+}
+
+// `true` means PostHog accepted the event into its send queue, which is as much
+// as a batched transport can honestly report. The callers' bookkeeping
+// (`activation`, `day_7_return`, the guest demo) relies on it never being true
+// for an event that was dropped.
+async function sendAnalyticsEvent(eventName, properties) {
+  if (typeof window === 'undefined' || !ANALYTICS_HOSTS.has(globalThis.location?.hostname)) return false;
+  const client = await loadAnalyticsClient();
+  return Boolean(client?.capture(eventName, properties));
+}
+
+/**
+ * One view per change of concrete pathname, filed under its pattern: two papers
+ * share `/public/paper/:id` and are still two views. PostHog's own page view
+ * capture stays off because it would read the address bar. The URL is fixed
+ * here, from the route the view belongs to, so a navigation made while the
+ * library loads cannot file this view under the next page.
+ */
+export async function trackPageView(pathname) {
+  if (readAnalyticsConsent() !== ANALYTICS_CONSENT.GRANTED) return false;
+  return sendAnalyticsEvent('$pageview', { $current_url: sanitizeAnalyticsLocation(pathname) });
+}
+
 export async function trackProductEvent(eventName, params = {}) {
   if (!Object.hasOwn(EVENT_PARAMETER_SCHEMAS, eventName)) return false;
   if (readAnalyticsConsent() !== ANALYTICS_CONSENT.GRANTED) return false;
-  if (typeof window === 'undefined') return false;
-
-  try {
-    sendVercelEvent(eventName, sanitizeProductEventParams(eventName, params));
-    return true;
-  } catch {
-    // `track` throws in development when a property is not a scalar. The
-    // sanitizer above only ever emits scalars, so this is the unreachable
-    // branch that keeps a caller's `activation`/`day_7_return` bookkeeping from
-    // recording a send that did not happen.
-    return false;
-  }
+  return sendAnalyticsEvent(eventName, sanitizeProductEventParams(eventName, params));
 }
 
 function hostnameMatches(hostname, patterns) {

@@ -23,6 +23,10 @@
       "destination": "https://papertok-168df.firebaseapp.com/__/auth/:path*"
     },
     {
+      "source": "/ingest/:path(.*)",
+      "destination": "https://eu.i.posthog.com/:path"
+    },
+    {
       "source": "/public/:kind(paper|list|user|entity)/:rest*",
       "has": [
         {

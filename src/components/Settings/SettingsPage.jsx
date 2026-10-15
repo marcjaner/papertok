@@ -170,7 +170,7 @@ const SETTINGS_COPY = {
   usageAnalytics: 'Usage analytics',
   usageAnalyticsDescription: 'Control the anonymous measurements used to improve PaperTok.',
   analyticsToggleLabel: 'Allow usage analytics',
-  analyticsHint: 'Only anonymous pages are recorded; never searches, papers, interests, or account data. Saved on the spot.',
+  analyticsHint: 'Counts pages and actions anonymously, without cookies; never your searches, papers, interests or account. Saved on the spot.',
   unpublish: 'Unpublish',
   unpublishDescription: 'Take your public page down. Your account stays.',
   unpublishTitle: 'Unpublish my profile',
