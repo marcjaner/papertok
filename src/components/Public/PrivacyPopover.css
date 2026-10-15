@@ -3,6 +3,9 @@
    popup is portaled to <body>, so nothing here is rooted in a page container. */
 .privacy-popover {
   display: grid;
+  /* One column that never grows past the popup: a line that cannot wrap
+     would otherwise widen it and scroll it sideways at large text sizes. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   width: min(18rem, calc(100vw - 2 * var(--space-3)));
   max-height: var(--available-height);
@@ -45,8 +48,11 @@
   color: var(--tint-red-fg);
 }
 
+/* The ghost-button look comes with `whitespace-nowrap`; at 200% text this
+   link has to wrap instead. */
 .privacy-popover-policy {
   justify-self: start;
+  white-space: normal;
 }
 
 .privacy-popover-trigger[data-popup-open] {
