@@ -297,8 +297,6 @@ bug this pattern exists to prevent.
   spare the margin.
 - Short abstracts leave a gap at the top of a card (a product call: centre, or
   promote a figure into the empty band).
-- The `/ai/explain` endpoint has no caller since the Reader replaced the
-  explainer — decide whether it becomes the abstract-only fallback or is deleted.
 - Figures are not licence-checked; arXiv licences vary.
 
 ---
