@@ -1,0 +1,4 @@
+# Check text files out with LF on every platform. Several tests read source files
+# and match them line by line, so a Windows checkout with CRLF fails them although
+# CI on Linux passes. Binary files are detected and left alone.
+* text=auto eol=lf
