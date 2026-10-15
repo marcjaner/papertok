@@ -345,11 +345,11 @@ test('falls back to the real path when there is no hash route, and never returns
 
 /**
  * What posthog-js 1.435.5 hands `before_send` (real keys, synthetic values).
- * With the options in analyticsService.js its own properties carry the page
- * title, the raw address with the search in it, the previous path and the words
- * typed into a search engine, on custom events as much as on page views. The
- * referrer and campaign ids appear only with other options, and are here so the
- * allowlist is tested against them too.
+ * With the options in analyticsService.js every event carries the raw address
+ * with the search in it and the words typed into a search engine, and page
+ * views also carry the page title and the previous path. The referrer and
+ * campaign ids appear only with other options, and are here so the allowlist is
+ * tested against them too.
  */
 function postHogCapture(event, properties) {
   return {
@@ -573,6 +573,19 @@ test('a mark asked for twice while the first send is still waiting leaves once',
   const failing = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
   assert.equal(await markActivation({ storage: failing, now: 1000, track: async () => false }), false);
   assert.equal(await markActivation({ storage: failing, now: 2000, track }), true, 'a failed send is retried');
+});
+
+test('a mark whose send has not finished is not stored as sent', async () => {
+  // If the tab closes while PostHog is still loading, the send never settles,
+  // and whatever storage says at that moment is what the next visit reads.
+  // Nothing may say the mark left, or that visit would never send it.
+  const storage = memoryStorage({ [ANALYTICS_CONSENT_KEY]: ANALYTICS_CONSENT.GRANTED });
+  let settle;
+  const pending = markActivation({ storage, now: 1000, track: () => new Promise(resolve => { settle = resolve; }) });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(storage.getItem('papertok_analytics_activation_sent'), null);
+  settle(false);
+  assert.equal(await pending, false);
 });
 
 test('clears consent-scoped activation state when consent is denied', async t => {

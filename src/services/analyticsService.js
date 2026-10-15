@@ -357,8 +357,9 @@ function clearConsentScopedAnalyticsState(storage = getBrowserStorage()) {
 // Granting only has to persist: nothing is loaded until the next event asks
 // for it. Withdrawing stops recording at once, because the senders below and
 // `sanitizeAnalyticsCapture` read the stored choice at capture time. A library
-// already loaded in this tab stays in memory and records nothing new; events
-// recorded in the seconds before can still leave in PostHog's next batch.
+// already loaded in this tab stays in memory and records nothing new. Events
+// recorded before can still leave afterwards: in PostHog's next batch, or, for
+// a send that failed (offline, say), whenever its retry queue gets through.
 // Kept `async` because every caller awaits it.
 export async function setAnalyticsConsent(value) {
   if (!persistAnalyticsConsent(value)) return false;
@@ -467,35 +468,25 @@ export function sanitizeAnalyticsCapture(capture, consent = readAnalyticsConsent
 
 let analyticsClient = null;
 
-// Vite reports a dynamic import that fails as `vite:preloadError`, and main.jsx
-// answers with a reload, meant for a deploy that took a route's chunk away.
-// Analytics that cannot load is no reason to reload the reader's page, so the
-// event is stopped before main.jsx hears it while this import is in flight.
-// A capture listener on the target runs before main.jsx's ordinary one.
-const keepAnalyticsFailureQuiet = event => event.stopImmediatePropagation();
-
 /**
  * Loaded on the first event of a reader who has not turned analytics off, so
  * for anyone who has, the library is never even downloaded. PostHog drops a
  * capture made before `init` instead of queueing it, so every send waits for
  * this promise rather than firing into a client that is not ready yet.
  *
- * A load that fails (offline, or a deploy mid-session) is not retried: the tab
- * stops reporting, and the next page load tries again.
+ * A load that fails is not retried: the tab stops reporting, and the next page
+ * load tries again. Vite reports the failure like any other chunk's, so
+ * main.jsx's reload (once a minute at most) applies to it, which is the right
+ * answer when a deploy replaced the chunk. That is also why nothing is loaded
+ * while the browser says it is offline: a failure there would only reload.
  */
 function loadAnalyticsClient() {
-  if (!analyticsClient) {
-    window.addEventListener('vite:preloadError', keepAnalyticsFailureQuiet, { capture: true });
-    analyticsClient = import('posthog-js')
-      .then(({ posthog }) => {
-        posthog.init(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS);
-        return posthog;
-      })
-      .catch(() => null)
-      .finally(() => {
-        window.removeEventListener('vite:preloadError', keepAnalyticsFailureQuiet, { capture: true });
-      });
-  }
+  analyticsClient ??= import('posthog-js')
+    .then(({ posthog }) => {
+      posthog.init(POSTHOG_PROJECT_TOKEN, POSTHOG_OPTIONS);
+      return posthog;
+    })
+    .catch(() => null);
   return analyticsClient;
 }
 
@@ -505,6 +496,7 @@ function loadAnalyticsClient() {
 // for an event that was dropped.
 async function sendAnalyticsEvent(eventName, properties) {
   if (typeof window === 'undefined' || !ANALYTICS_HOSTS.has(globalThis.location?.hostname)) return false;
+  if (!analyticsClient && globalThis.navigator?.onLine === false) return false;
   const client = await loadAnalyticsClient();
   return Boolean(client?.capture(eventName, properties));
 }
@@ -589,23 +581,30 @@ function resolveTimestamp(now) {
   return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
 
+// Marks whose send is still waiting, in this tab. The first event of a page
+// waits for PostHog to load, and a second call in that window would otherwise
+// pass the stored check and send the mark twice: opening `/` asks on the way in
+// and again after the redirect to `/feed`. Kept in memory, not in storage, so a
+// tab closed mid-send leaves the mark unsent and the next visit tries again.
+const marksInFlight = new Set();
+
 export async function markActivation({ storage = getBrowserStorage(), now = Date.now, track = trackProductEvent } = {}) {
   if (readAnalyticsConsent(storage) !== ANALYTICS_CONSENT.GRANTED) return false;
 
   try {
     if (storage?.getItem(ANALYTICS_ACTIVATION_EVENT_KEY) === 'true') return false;
+    if (marksInFlight.has(ANALYTICS_ACTIVATION_EVENT_KEY)) return false;
     const timestamp = resolveTimestamp(now);
-    // Marked before the send and cleared if it fails: the first event of a page
-    // waits for PostHog to load, and a second call in that window would
-    // otherwise pass the check above and send the mark twice.
-    storage?.setItem(ANALYTICS_ACTIVATION_EVENT_KEY, 'true');
-    const tracked = await track('activation').catch(() => false);
-    if (!tracked) {
-      storage?.removeItem(ANALYTICS_ACTIVATION_EVENT_KEY);
-      return false;
+    marksInFlight.add(ANALYTICS_ACTIVATION_EVENT_KEY);
+    try {
+      const tracked = await track('activation');
+      if (!tracked) return false;
+      storage?.setItem(ANALYTICS_ACTIVATION_KEY, String(timestamp));
+      storage?.setItem(ANALYTICS_ACTIVATION_EVENT_KEY, 'true');
+      return true;
+    } finally {
+      marksInFlight.delete(ANALYTICS_ACTIVATION_EVENT_KEY);
     }
-    storage?.setItem(ANALYTICS_ACTIVATION_KEY, String(timestamp));
-    return true;
   } catch {
     return false;
   }
@@ -616,18 +615,19 @@ export async function trackDay7Return({ storage = getBrowserStorage(), now = Dat
 
   try {
     if (storage?.getItem(ANALYTICS_DAY_7_KEY) === 'true') return false;
+    if (marksInFlight.has(ANALYTICS_DAY_7_KEY)) return false;
     const activatedAt = Number(storage?.getItem(ANALYTICS_ACTIVATION_KEY));
     if (!Number.isFinite(activatedAt) || activatedAt <= 0) return false;
     if (resolveTimestamp(now) - activatedAt < DAY_7_MS) return false;
-    // Marked first for the same reason as in `markActivation`: opening `/`
-    // redirects to `/feed`, and both page changes ask before PostHog has loaded.
-    storage?.setItem(ANALYTICS_DAY_7_KEY, 'true');
-    const tracked = await track('day_7_return').catch(() => false);
-    if (!tracked) {
-      storage?.removeItem(ANALYTICS_DAY_7_KEY);
-      return false;
+    marksInFlight.add(ANALYTICS_DAY_7_KEY);
+    try {
+      const tracked = await track('day_7_return');
+      if (!tracked) return false;
+      storage?.setItem(ANALYTICS_DAY_7_KEY, 'true');
+      return true;
+    } finally {
+      marksInFlight.delete(ANALYTICS_DAY_7_KEY);
     }
-    return true;
   } catch {
     return false;
   }
