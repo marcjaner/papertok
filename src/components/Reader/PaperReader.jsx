@@ -205,17 +205,9 @@ const ERROR_COPY = {
       title: 'This paper is too large to rewrite',
       body: 'It does not fit in a single request to the model. The original is still where it was.',
     },
-    AI_SOURCE_UNAVAILABLE: {
-      title: 'The paper could not be downloaded',
-      body: 'The source did not answer in time. That is usually passing: try again in a moment.',
-    },
     AI_INVALID_REQUEST_UPSTREAM: {
       title: 'The model refused this paper',
       body: 'Not a service failure: with this document the answer would be the same. Try another level, or the original.',
-    },
-    AI_FALLBACK_BUDGET_EXHAUSTED: {
-      title: 'The monthly backup budget has run out',
-      body: 'The reserve model cannot work again this month. Try once the main one is available.',
     },
     AI_UNAVAILABLE: {
       title: 'The paper could not be rewritten',
@@ -259,8 +251,6 @@ const ERROR_TONES = {
   AI_UNAVAILABLE: 'broken',
   AI_INVALID_RESPONSE: 'broken',
   AI_EMPTY_RESPONSE: 'broken',
-  AI_SOURCE_UNAVAILABLE: 'wait',
-  AI_FALLBACK_BUDGET_EXHAUSTED: 'wait',
   AI_AUTH_REQUIRED: 'closed',
   AI_NOT_CONFIGURED: 'closed',
   AI_INVALID_PAPER: 'closed',
@@ -282,11 +272,9 @@ const UNRETRYABLE_ERRORS = new Set([
   'AI_AUTH_REQUIRED',
   'AI_NOT_CONFIGURED',
   'AI_INVALID_PAPER',
-  // The paper does not shrink, the model's no is deterministic, and the month
-  // does not end because a button was pressed.
+  // The paper does not shrink, and the model's no is deterministic.
   'AI_REQUEST_TOO_LARGE',
   'AI_INVALID_REQUEST_UPSTREAM',
-  'AI_FALLBACK_BUDGET_EXHAUSTED',
 ]);
 
 /**

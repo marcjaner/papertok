@@ -23,7 +23,6 @@ export const PRODUCT_ANALYTICS_EVENTS = Object.freeze([
   'follow_change',
   'save_change',
   'share',
-  'ai_explanation',
   'login',
   'sign_up',
   'tutorial_begin',
@@ -124,7 +123,6 @@ const SOCIAL_HOSTS = [
 const CATEGORIES = Object.freeze({
   action: new Set(['add', 'remove']),
   acquisition_channel: new Set(['direct', 'organic_search', 'organic_social', 'referral', 'email', 'paid', 'other']),
-  ai_action: new Set(['request', 'complete', 'error']),
   content_type: new Set(['paper', 'author', 'institution', 'project', 'topic', 'list', 'signup_cta', 'other']),
   destination: new Set(['publisher', 'pdf', 'doi', 'arxiv', 'other']),
   entity_type: new Set(['author', 'institution', 'project', 'topic']),
@@ -154,7 +152,6 @@ const EVENT_PARAMETER_SCHEMAS = Object.freeze({
   follow_change: { entity_type: 'entity_type', action: 'action', surface: 'surface' },
   save_change: { action: 'action', surface: 'surface' },
   share: { method: 'method', content_type: 'content_type', surface: 'surface' },
-  ai_explanation: { action: 'ai_action', surface: 'surface' },
   login: { method: 'method' },
   sign_up: { method: 'method' },
   tutorial_begin: { language: 'language' },

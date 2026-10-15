@@ -7,10 +7,9 @@ import { readFile } from 'node:fs/promises';
  *
  * `ERROR_COPY` falls back to `AI_UNAVAILABLE` — "something broke between the reader
  * and the model, retrying usually does it" — for any code it does not know, which is a
- * true sentence for exactly one of the codes below and a misleading one for the
- * rest: a paper too big to rewrite, a source that would not download, a body the
- * model refused outright and a monthly budget that ran out are four different
- * situations, three of which no amount of retrying will change.
+ * misleading sentence for both codes below: a paper too big to rewrite and a body
+ * the model refused outright are different situations, and no amount of retrying
+ * will change either.
  *
  * A source test rather than a render: these are constants in a 1 700-line
  * component that mounts a portal, a Base UI dialog and a streaming effect, and
@@ -34,9 +33,7 @@ function errorCopyBlock(source) {
 /** Codes the worker can put on the wire that had no copy of their own. */
 const ORPHANS = [
   'AI_REQUEST_TOO_LARGE',
-  'AI_SOURCE_UNAVAILABLE',
   'AI_INVALID_REQUEST_UPSTREAM',
-  'AI_FALLBACK_BUDGET_EXHAUSTED',
 ];
 
 test('every code the worker can emit has reader copy', async () => {
@@ -56,9 +53,6 @@ test('each new code says in colour what kind of failure it is', async () => {
   // refused: those are neutral, not red.
   assert.match(tones[1], /AI_REQUEST_TOO_LARGE: 'closed'/);
   assert.match(tones[1], /AI_INVALID_REQUEST_UPSTREAM: 'closed'/);
-  // A mirror that would not answer and a budget that resets are both "come back".
-  assert.match(tones[1], /AI_SOURCE_UNAVAILABLE: 'wait'/);
-  assert.match(tones[1], /AI_FALLBACK_BUDGET_EXHAUSTED: 'wait'/);
 });
 
 test('the retry button is hidden where pressing it cannot help', async () => {
@@ -66,11 +60,9 @@ test('the retry button is hidden where pressing it cannot help', async () => {
   const unretryable = source.match(/const UNRETRYABLE_ERRORS = new Set\(\[([\s\S]*?)\]\);/);
   assert.ok(unretryable, 'expected an UNRETRYABLE_ERRORS set');
 
-  for (const code of ['AI_REQUEST_TOO_LARGE', 'AI_INVALID_REQUEST_UPSTREAM', 'AI_FALLBACK_BUDGET_EXHAUSTED']) {
+  for (const code of ['AI_REQUEST_TOO_LARGE', 'AI_INVALID_REQUEST_UPSTREAM']) {
     assert.match(unretryable[1], new RegExp(`'${code}'`), `${code} would offer a retry that reprints the same screen`);
   }
-  // The source being down is worth another go, and so is a fresh download.
-  assert.doesNotMatch(unretryable[1], /'AI_SOURCE_UNAVAILABLE'/);
 });
 
 /**
