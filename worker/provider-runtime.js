@@ -2,9 +2,9 @@ import { allowedOrigins, corsHeaders, json } from './http.js';
 import { releaseRequestQuota, reserveRequestQuota } from './request-quota-ledger.js';
 import { awaitUpstreamSlot, PACE_RETRY_AFTER_SECONDS } from './upstream-pace.js';
 
-// Upstream deadlines, all in one place because every group that adds a route
-// needs one. The ceiling on any of them is what the browser is willing to wait:
-// the client gives `/report/trends` 10 s and the specialist sources 10 s, so a
+// The default upstream deadlines for the provider modules; some modules set their
+// own. The ceiling on any of them is what the browser is willing to wait: the
+// client gives `/report/trends` 10 s and the specialist sources 10 s, so a
 // Worker that outlasts that is answering nobody.
 const UPSTREAM_TIMEOUT_MS = 8000;
 export const SOURCE_UPSTREAM_TIMEOUT_MS = 6000;
@@ -345,7 +345,8 @@ export async function cacheResponse(request, origin, env, ttl, fetcher, options 
 // next route that passes one an unbounded wait, which is exactly what this helper
 // exists to remove. `AbortSignal.any` keeps whichever fired first as the reason,
 // so a cancellation still surfaces as `AbortError` and only a real deadline as
-// `TimeoutError`.
+// `TimeoutError`. `email-notifications.js` keeps a private copy with the same
+// signal rule; change both together.
 export function fetchWithDeadline(url, options = {}, timeoutMs = UPSTREAM_TIMEOUT_MS) {
   const deadline = AbortSignal.timeout(timeoutMs);
   return fetch(url, {
