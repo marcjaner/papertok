@@ -108,6 +108,36 @@ test('falls back to a consent cookie when browser storage is unavailable', t => 
   assert.equal(consentCookie, `${ANALYTICS_CONSENT_COOKIE_KEY}=${ANALYTICS_CONSENT.GRANTED}`);
 });
 
+// A visitor's Privacy panel says "Not saved" on exactly this `false`. A browser
+// that keeps neither the storage entry nor the cookie must not be told the
+// choice took, and nothing about the stored choice may change.
+test('a choice neither browser storage nor a cookie will keep is reported as not saved', async t => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('storage unavailable'); },
+  });
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      get cookie() { return ''; },
+      set cookie(_value) {},
+    },
+  });
+
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+    else delete globalThis.document;
+  });
+
+  assert.equal(await setAnalyticsConsent(ANALYTICS_CONSENT.DENIED), false);
+  assert.equal(readAnalyticsConsent(), ANALYTICS_CONSENT.GRANTED);
+});
+
 test('restores a previous consent decision from its cookie after a reload', t => {
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');

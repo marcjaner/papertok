@@ -56,13 +56,11 @@ export default function PrivacyPopover({ className = '' }) {
       <PopoverContent align="end" className="privacy-popover">
         <PopoverTitle className="privacy-popover-title">{COPY.name}</PopoverTitle>
         <PopoverDescription className="privacy-popover-lede">{COPY.lede}</PopoverDescription>
+        {/* Named by the label it sits in: Base UI points `aria-labelledby` at
+            it, and an `aria-label` as well would be read out twice. */}
         <Label className="privacy-popover-switch">
           {COPY.toggle}
-          <Switch
-            checked={consent === ANALYTICS_CONSENT.GRANTED}
-            aria-label={COPY.toggle}
-            onCheckedChange={choose}
-          />
+          <Switch checked={consent === ANALYTICS_CONSENT.GRANTED} onCheckedChange={choose} />
         </Label>
         <p role="status" className={`privacy-popover-status${saveFailed ? ' is-failed' : ''}`}>
           {saveFailed ? COPY.saveFailed : COPY.kept}

@@ -25,6 +25,22 @@ test('a visitor reaches the analytics switch and the policy from both guest bars
   const barAction = welcome.slice(welcome.indexOf('barAction={('), welcome.indexOf(')}', welcome.indexOf('barAction={(')));
   assert.match(barAction, /<PrivacyPopover className="gw-bar-button" \/>/);
   assert.doesNotMatch(await read('./WelcomeShell.jsx'), /PrivacyPopover/);
+
+  // The policy is a page of its own, opened beside the app so the welcome keeps
+  // its place, and a link rather than a Button (which Base UI would announce as
+  // a button). Nothing else in the app links a visitor to it.
+  const popover = await read('./PrivacyPopover.jsx');
+  assert.match(popover, /<a\s+href="\/privacy\.html"\s+target="_blank"\s+rel="noopener noreferrer"/);
+  assert.match(popover, /<span className="visually-hidden">\{COPY\.newTab\}<\/span>/);
+});
+
+test('arrow keys in the Privacy panel stay in the panel on the feed', async () => {
+  // The feed turns ArrowUp/ArrowDown into a card change unless focus is in
+  // something interactive; a non-modal popup is, whatever inside it has focus.
+  const feed = await read('../Feed/FeedContainer.jsx');
+  const exempt = feed.match(/activeTarget\?\.closest\(\s*'([^']+)'/)?.[1];
+  assert.ok(exempt, 'the feed no longer says which targets keep their keys');
+  assert.match(exempt, /\[role="dialog"\]/);
 });
 
 test('the switch reads and writes the one stored choice through the analytics context', async () => {
@@ -34,6 +50,8 @@ test('the switch reads and writes the one stored choice through the analytics co
   assert.match(popover, /updateConsent\(checked \? ANALYTICS_CONSENT\.GRANTED : ANALYTICS_CONSENT\.DENIED\)/);
   // A second way to store the choice would be a second owner of it.
   assert.doesNotMatch(popover, /setAnalyticsConsent|persistAnalyticsConsent|localStorage|document\.cookie|papertok_analytics/);
+  // Named by the label it sits in; an aria-label too is read out twice.
+  assert.doesNotMatch(popover, /<Switch[^>]*aria-label/);
 });
 
 test('a choice the browser refused to store is said, not just left unswitched', async () => {

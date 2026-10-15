@@ -631,8 +631,11 @@ export default function FeedContainer({ onOpenPdf, onSaveToList, onOpenComments 
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const activeTarget = e.target instanceof Element ? e.target : null;
+        // `[role="dialog"]` covers a non-modal popup over the feed, such as a
+        // visitor's Privacy panel: its keys are its own, and with large text it
+        // scrolls with them.
         const isInteractive = activeTarget?.closest(
-          'input, textarea, select, button, a, summary, [contenteditable="true"], [role="textbox"], [role="button"], [role="link"]',
+          'input, textarea, select, button, a, summary, [contenteditable="true"], [role="textbox"], [role="button"], [role="link"], [role="dialog"]',
         );
         const hasOpenModal = document.querySelector('[aria-modal="true"]');
         if (isInteractive || hasOpenModal) return;
